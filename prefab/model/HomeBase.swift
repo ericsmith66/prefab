@@ -60,6 +60,10 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
         return formatter
     }()
     
+    /// Rate limiting for logging
+    private var logTimestamps: [Date] = []
+    private var lastLoggedValues: [String: Any?] = [:]  // accessoryId+characteristic -> last value
+    
     override init(){
         super.init()
         setupFileLogging()
@@ -381,17 +385,50 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
     
     private func handleCharacteristicUpdate(_ accessory: HMAccessory, characteristic: HMCharacteristic, source: String) {
         let accessoryId = accessory.uniqueIdentifier.uuidString
+        let config = configManager.config.logging
         
         if source == "NATIVE" {
             nativeAccessories.insert(accessoryId)
-            logToFile("🔥 NATIVE [\(nativeCallbackCount)] \(accessory.name) - \(characteristic.localizedDescription): \(String(describing: characteristic.value))")
         } else {
             pollingCallbackCount += 1
             // Only mark as polling-only if it hasn't sent native callbacks
             if !nativeAccessories.contains(accessoryId) {
                 pollingOnlyAccessories.insert(accessoryId)
             }
-            logToFile("🔄 POLLING [\(pollingCallbackCount)] \(accessory.name) - \(characteristic.localizedDescription): \(String(describing: characteristic.value))")
+        }
+        
+        // Determine if we should log this callback
+        var shouldLog = config.logAllCallbacks
+        
+        if !shouldLog && config.logOnlyChanges {
+            // Only log if value changed
+            let key = "\(accessoryId):\(characteristic.uniqueIdentifier.uuidString)"
+            let currentValue = characteristic.value as? NSObject
+            let lastValue = lastLoggedValues[key] as? NSObject
+            
+            if lastValue == nil || !(lastValue?.isEqual(currentValue) ?? false) {
+                shouldLog = true
+                lastLoggedValues[key] = characteristic.value
+            }
+        }
+        
+        // Apply rate limiting
+        if shouldLog && config.maxCallbacksPerSecond > 0 {
+            let now = Date()
+            // Remove timestamps older than 1 second
+            logTimestamps = logTimestamps.filter { now.timeIntervalSince($0) < 1.0 }
+            
+            if logTimestamps.count < config.maxCallbacksPerSecond {
+                logTimestamps.append(now)
+            } else {
+                shouldLog = false  // Rate limit exceeded
+            }
+        }
+        
+        if shouldLog {
+            let icon = source == "NATIVE" ? "🔥" : "🔄"
+            let count = source == "NATIVE" ? nativeCallbackCount : pollingCallbackCount
+            logToFile("\(icon) \(source) [\(count)] \(accessory.name) - \(characteristic.localizedDescription): \(String(describing: characteristic.value))")
         }
         
         // Send webhook notification

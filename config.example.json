@@ -12,5 +12,10 @@
   "deviceRegistry": {
     "mode": "all",
     "devices": []
+  },
+  "logging": {
+    "logAllCallbacks": false,
+    "logOnlyChanges": true,
+    "maxCallbacksPerSecond": 10
   }
 }

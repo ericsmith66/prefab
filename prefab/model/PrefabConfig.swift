@@ -18,6 +18,9 @@ struct PrefabConfig: Codable {
     /// Device registry - which devices to poll (empty = poll all)
     var deviceRegistry: DeviceRegistry
     
+    /// Logging configuration
+    var logging: LoggingConfig
+    
     /// Default configuration
     static let `default` = PrefabConfig(
         webhook: WebhookConfig(
@@ -33,6 +36,11 @@ struct PrefabConfig: Codable {
         deviceRegistry: DeviceRegistry(
             mode: .all,
             devices: []
+        ),
+        logging: LoggingConfig(
+            logAllCallbacks: false,
+            logOnlyChanges: true,
+            maxCallbacksPerSecond: 10
         )
     )
     
@@ -68,6 +76,18 @@ struct PrefabConfig: Codable {
         var ticksPerReport: Int {
             return Int(reportIntervalSeconds / intervalSeconds)
         }
+    }
+    
+    /// Logging settings
+    struct LoggingConfig: Codable {
+        /// Whether to log every callback to file
+        var logAllCallbacks: Bool
+        
+        /// Whether to log only value changes (not repeated values)
+        var logOnlyChanges: Bool
+        
+        /// Maximum callbacks to log per second (0 = unlimited)
+        var maxCallbacksPerSecond: Int
     }
     
     /// Device registry settings
