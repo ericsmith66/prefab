@@ -397,6 +397,13 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
             }
         }
         
+        // Early exit if logging is disabled
+        guard config.enabled else {
+            // Still send webhook even if logging is disabled
+            sendWebhook(accessory: accessory, characteristic: characteristic)
+            return
+        }
+        
         // Determine if we should log this callback
         var shouldLog = config.logAllCallbacks
         
@@ -432,6 +439,10 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
         }
         
         // Send webhook notification
+        sendWebhook(accessory: accessory, characteristic: characteristic)
+    }
+    
+    private func sendWebhook(accessory: HMAccessory, characteristic: HMCharacteristic) {
         guard let webhookURL = HomeBase.eventWebhookURL else { return }
         
         let payload: [String: Any] = [
@@ -439,7 +450,7 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
             "accessory": accessory.name,
             "characteristic": characteristic.localizedDescription,
             "value": characteristic.value ?? "nil",
-            "timestamp": ISO8601DateFormatter().string(from: Date())
+            "timestamp": dateFormatter.string(from: Date())
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
@@ -458,7 +469,7 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
         request.httpBody = jsonData
         
         URLSession.shared.dataTask(with: request) { _, _, _ in
-            // Silently send webhooks, errors logged elsewhere if needed
+            // Silently send webhooks
         }.resume()
     }
     

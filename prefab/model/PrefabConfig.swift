@@ -38,6 +38,7 @@ struct PrefabConfig: Codable {
             devices: []
         ),
         logging: LoggingConfig(
+            enabled: false,
             logAllCallbacks: false,
             logOnlyChanges: true,
             maxCallbacksPerSecond: 10
@@ -80,6 +81,9 @@ struct PrefabConfig: Codable {
     
     /// Logging settings
     struct LoggingConfig: Codable {
+        /// Whether file logging is enabled at all
+        var enabled: Bool
+        
         /// Whether to log every callback to file
         var logAllCallbacks: Bool
         
