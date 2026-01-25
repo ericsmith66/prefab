@@ -9,9 +9,7 @@ import Foundation
 import HomeKit
 import OSLog
 
-private let _homeBaseFileLoaded: () = {
-    print("HOMEBASE FILE LOADED: HomeBase.swift is compiled and loaded!")
-}()
+
 
 /// A container for the home manager that's accessible throughout the app.
 class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDelegate, HMHomeDelegate {
@@ -100,7 +98,6 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
                 for accessory in home.accessories {
                     accessory.delegate = self
                     accessoryDelegates.insert(accessory)
-                    logToFile("🎯 SET DELEGATE: \(accessory.name) -> HomeBase")
                     
                     // Track accessory name for reporting
                     accessoryNames[accessory.uniqueIdentifier.uuidString] = accessory.name
@@ -113,17 +110,15 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
                                characteristic.properties.contains(HMCharacteristicPropertySupportsEventNotification) {
                                 characteristic.enableNotification(true) { error in
                                     if let error = error {
-                                        self.logToFile("⚠️ Notification FAILED: \(accessory.name).\(characteristic.localizedDescription) - \(error.localizedDescription)")
+                                        self.logToFile("Notification failed for \(accessory.name).\(characteristic.localizedDescription): \(error.localizedDescription)")
                                         // Add to polling list as fallback ONLY on error
                                         if let existingIndex = self.pollingAccessories.firstIndex(where: { $0.accessory === accessory }) {
                                             self.pollingAccessories[existingIndex].characteristics.append(characteristic)
                                         } else {
                                             self.pollingAccessories.append((accessory: accessory, characteristics: [characteristic]))
                                         }
-                                    } else {
-                                        self.logToFile("✅ Notification ENABLED: \(accessory.name).\(characteristic.localizedDescription)")
-                                        // Native callbacks should work - don't add to polling
                                     }
+                                    // Successfully enabled - native callbacks will handle updates
                                 }
                             }
                         }
@@ -203,7 +198,7 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
             
             // Log stats based on config (default: every 60 seconds)
             if tickCount % ticksPerReport == 0 {
-                self.logToFile("📊 Tick #\(tickCount): Native: \(self.nativeCallbackCount), Polling: \(self.pollingCallbackCount)")
+                self.logToFile("Polling tick #\(tickCount): Native callbacks: \(self.nativeCallbackCount), Polling callbacks: \(self.pollingCallbackCount)")
                 self.logAccessoryReport()
             }
             
@@ -391,8 +386,6 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
     
     func accessory(_ accessory: HMAccessory, service: HMService, didUpdateValueFor characteristic: HMCharacteristic) {
         // This is a NATIVE callback from HomeKit!
-        print("🔥🔥🔥 NATIVE CALLBACK RECEIVED: \(accessory.name) - \(service.name) - \(characteristic.localizedDescription)")
-        logToFile("🔥🔥🔥 NATIVE CALLBACK RECEIVED: \(accessory.name) - \(service.name) - \(characteristic.localizedDescription)")
         nativeCallbackCount += 1
         handleCharacteristicUpdate(accessory, characteristic: characteristic, source: "NATIVE")
     }
@@ -447,9 +440,8 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
         }
         
         if shouldLog {
-            let icon = source == "NATIVE" ? "🔥" : "🔄"
             let count = source == "NATIVE" ? nativeCallbackCount : pollingCallbackCount
-            logToFile("\(icon) \(source) [\(count)] \(accessory.name) - \(characteristic.localizedDescription): \(String(describing: characteristic.value))")
+            logToFile("[\(source)] \(accessory.name) - \(characteristic.localizedDescription): \(String(describing: characteristic.value))")
         }
         
         // Send webhook notification
