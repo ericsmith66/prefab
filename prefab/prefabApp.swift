@@ -15,14 +15,13 @@ struct prefabApp: App {
     @State var displayInstall: Bool = false
     
     init() {
-        print("Startup code executing - attempting to force HomeBase init")
+        // Disable excessive os_log from Apple's frameworks (especially HomeKit)
+        // This prevents "QUARANTINED DUE TO HIGH LOGGING VOLUME" messages
+        // HMFoundation logs 100,000+ times per 10 minutes with active sensors
+        setenv("OS_ACTIVITY_MODE", "disable", 0)  // 0 = don't overwrite if already set
         
         // Force HomeBase singleton initialization to set up delegates and subscriptions
         _ = HomeBase.shared
-        Logger().log("Forced HomeBase.shared initialization at app startup")
-        
-        print("HomeBase.shared is accessible - homes.count: \(HomeBase.shared.homeManager.homes.count)")
-        print("HomeBase.shared.homes: \(HomeBase.shared.homes.map { $0.name })")
     }
     
     var body: some Scene {
