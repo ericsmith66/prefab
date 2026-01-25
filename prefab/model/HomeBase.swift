@@ -66,10 +66,15 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
     
     override init(){
         super.init()
-        setupFileLogging()
-        logToFile("=== HOMEBASE INITIALIZED ===")
-        logToFile("Log file: \(logFilePath.path)")
-        logToFile("Homes at init: \(self.homeManager.homes.count)")
+        
+        // Only setup file logging if enabled in config
+        if configManager.config.logging.enabled {
+            setupFileLogging()
+            logToFile("=== HOMEBASE INITIALIZED ===")
+            logToFile("Log file: \(logFilePath.path)")
+            logToFile("Homes at init: \(self.homeManager.homes.count)")
+        }
+        
         homeManager.delegate = self
     }
     
@@ -365,6 +370,8 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
     }
     
     private func logToFile(_ message: String) {
+        // Early exit if logging disabled - don't even format the string
+        guard configManager.config.logging.enabled else { return }
         guard let handle = logFileHandle else { return }
         
         let timestamp = dateFormatter.string(from: Date())
