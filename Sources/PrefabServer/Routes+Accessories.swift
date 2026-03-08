@@ -11,6 +11,105 @@ import Hummingbird
 import OSLog
 
 extension Server {
+    /// GET /accessories/:home — List all accessories across all rooms (no characteristic reads)
+    /// Optional query filters (all combinable):
+    ///   ?reachable=true|false
+    ///   ?room=RoomName
+    ///   ?category=CategoryName
+    ///   ?manufacturer=ManufacturerName
+    func getAllAccessories(_ request: HBRequest) throws -> String {
+        let homeName = try getRequiredParam(param: "home", request: request)
+        guard let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding }) else {
+            throw HBHTTPError(.notFound)
+        }
+
+        let reachableFilter: Bool? = request.uri.queryParameters.get("reachable")
+            .flatMap { Bool($0) }
+        let roomFilter: String? = request.uri.queryParameters.get("room")?
+            .removingPercentEncoding
+        let categoryFilter: String? = request.uri.queryParameters.get("category")?
+            .removingPercentEncoding
+        let manufacturerFilter: String? = request.uri.queryParameters.get("manufacturer")?
+            .removingPercentEncoding
+
+        var accessories: [Accessory] = []
+        for room in home.rooms {
+            if let filter = roomFilter, room.name != filter { continue }
+            for hmAccessory in room.accessories {
+                if let filter = reachableFilter, hmAccessory.isReachable != filter { continue }
+                if let filter = categoryFilter,
+                   hmAccessory.category.localizedDescription.lowercased() != filter.lowercased() { continue }
+                if let filter = manufacturerFilter,
+                   (hmAccessory.manufacturer ?? "").lowercased() != filter.lowercased() { continue }
+                accessories.append(Accessory(
+                    home: home.name,
+                    room: room.name,
+                    name: hmAccessory.name,
+                    category: hmAccessory.category.localizedDescription,
+                    isReachable: hmAccessory.isReachable,
+                    isBridged: hmAccessory.isBridged,
+                    firmwareVersion: hmAccessory.firmwareVersion,
+                    manufacturer: hmAccessory.manufacturer,
+                    model: hmAccessory.model
+                ))
+            }
+        }
+
+        let jsonData = try JSONEncoder().encode(accessories)
+        return String(data: jsonData, encoding: .utf8)!
+    }
+
+    /// GET /accessories/:home/summary — Counts and rollups for dashboard use
+    func getAccessorySummary(_ request: HBRequest) throws -> String {
+        let homeName = try getRequiredParam(param: "home", request: request)
+        guard let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding }) else {
+            throw HBHTTPError(.notFound)
+        }
+
+        var total = 0
+        var reachable = 0
+        var byCategory: [String: Int] = [:]
+        var byRoom: [String: Int] = [:]
+        var byManufacturer: [String: Int] = [:]
+        var unreachableByManufacturer: [String: Int] = [:]
+        var unreachableByRoom: [String: Int] = [:]
+
+        for room in home.rooms {
+            for hmAccessory in room.accessories {
+                total += 1
+                let category = hmAccessory.category.localizedDescription.isEmpty
+                    ? "Uncategorized" : hmAccessory.category.localizedDescription
+                let manufacturer = (hmAccessory.manufacturer ?? "Unknown")
+                let roomName = room.name
+
+                byCategory[category, default: 0] += 1
+                byRoom[roomName, default: 0] += 1
+                byManufacturer[manufacturer, default: 0] += 1
+
+                if hmAccessory.isReachable {
+                    reachable += 1
+                } else {
+                    unreachableByManufacturer[manufacturer, default: 0] += 1
+                    unreachableByRoom[roomName, default: 0] += 1
+                }
+            }
+        }
+
+        let summary: [String: Any] = [
+            "total": total,
+            "reachable": reachable,
+            "unreachable": total - reachable,
+            "byCategory": byCategory,
+            "byRoom": byRoom,
+            "byManufacturer": byManufacturer,
+            "unreachableByManufacturer": unreachableByManufacturer,
+            "unreachableByRoom": unreachableByRoom
+        ]
+
+        let jsonData = try JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys])
+        return String(data: jsonData, encoding: .utf8)!
+    }
+
     func getAccessories(_ request: HBRequest) throws -> String {
         let homeName = try getRequiredParam(param: "home", request: request)
         let roomName = try getRequiredParam(param: "room", request: request)
