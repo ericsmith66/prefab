@@ -141,6 +141,26 @@ func GetValue(value: String, format: String) throws -> Any {
     case "bool":
         let trues: [String] = ["1", "true", "on"]
         return trues.contains(where: { $0.lowercased() == value.lowercased() } )
+    case "uint8":
+        guard let v = UInt8(value) else { throw UnknownFormatError.formatValue(format: format) }
+        return NSNumber(value: v)
+    case "uint16":
+        guard let v = UInt16(value) else { throw UnknownFormatError.formatValue(format: format) }
+        return NSNumber(value: v)
+    case "uint32":
+        guard let v = UInt32(value) else { throw UnknownFormatError.formatValue(format: format) }
+        return NSNumber(value: v)
+    case "uint64":
+        guard let v = UInt64(value) else { throw UnknownFormatError.formatValue(format: format) }
+        return NSNumber(value: v)
+    case "int":
+        guard let v = Int(value) else { throw UnknownFormatError.formatValue(format: format) }
+        return NSNumber(value: v)
+    case "float":
+        guard let v = Float(value) else { throw UnknownFormatError.formatValue(format: format) }
+        return NSNumber(value: v)
+    case "string":
+        return value
     default:
         throw UnknownFormatError.formatValue(format: format)
     }

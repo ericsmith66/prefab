@@ -153,6 +153,8 @@ class Server  {
             application.router.get("rooms/:home", use: self.getRooms)
             application.router.get("rooms/:home/:room", use: self.getRoom)
             
+            application.router.get("accessories/:home/summary", use: self.getAccessorySummary)
+            application.router.get("accessories/:home", use: self.getAllAccessories)
             application.router.get("accessories/:home/:room", use: self.getAccessories)
             application.router.get("accessories/:home/:room/:accessory", use: self.getAccessory)
             application.router.put("accessories/:home/:room/:accessory", use: self.updateAccessory)
