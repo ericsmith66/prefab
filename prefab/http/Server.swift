@@ -58,7 +58,7 @@ final class BonjourAdvertiser: NSObject, NetServiceDelegate {
 	func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
 		if let errorCode = errorDict["NSNetServicesErrorCode"]?.intValue {
 			switch errorCode {
-			case -72003: // kDNSServiceErr_NameConflict
+			case -72001, -72003: // -72001 NSNetServicesCollisionError (name already in use); -72003 activity in progress
 				attempt += 1
 				let newName = attempt == 1 ? "\(baseName) (2)" : "\(baseName) (\(attempt + 1))"
 				print("⚠️  Name conflict, retrying as '\(newName)'")
@@ -111,7 +111,11 @@ class Server  {
             "api": "homekit"
         ]
         
-        bonjourAdvertiser = BonjourAdvertiser(name: "Prefab HomeKit Bridge", type: "_prefab._tcp.", port: 8080, txt: txtData)
+        // Unique per-host name so multiple Prefab instances on the same LAN
+        // (e.g. dev host + nextgen) don't collide on the same mDNS name.
+        let hostName = ProcessInfo.processInfo.hostName.replacingOccurrences(of: ".local", with: "")
+        let serviceName = "Prefab HomeKit Bridge (\(hostName))"
+        bonjourAdvertiser = BonjourAdvertiser(name: serviceName, type: "_prefab._tcp.", port: 8080, txt: txtData)
         bonjourAdvertiser?.publish()
         Logger().info("Started mDNS advertising for Prefab HomeKit Server on port 8080")
     }
