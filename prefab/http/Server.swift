@@ -76,7 +76,10 @@ final class BonjourAdvertiser: NSObject, NetServiceDelegate {
 
 struct HomeKitAuthLogger: HBMiddleware {
     func apply(to request: HBRequest, next: HBResponder) -> EventLoopFuture<HBResponse> {
-        let homebase = HomeBase()
+        // Must use the shared, long-lived instance — a fresh HomeBase() creates a
+        // brand-new HMHomeManager whose authorizationStatus is always un-authorized
+        // (it resolves asynchronously), which blanket-403s every request.
+        let homebase = HomeBase.shared
         let stats = homebase.homeManager.authorizationStatus
         Logger().log("HomeKit Authorization status is \(stats.rawValue)")
         if !homebase.homeManager.authorizationStatus.contains(.authorized) {
