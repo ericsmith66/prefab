@@ -5,9 +5,11 @@ the PRD-1-01 implementation plan in `ericsmith66/skynet-mcp` (`knowledge_base/ep
 § 9 (build + parity) and § 10 (window) as amended by § 15.10, § 15.11, § 15.14 (R3) and § 15.15 (R4). Where this file
 and the plan differ, the plan wins. Every state-changing step needs Eric's "yes" at the time it runs.
 
-Placeholders: `S` = the pinned 40-hex commit that is built and deployed; `<repo>` = a clean checkout of `S` on `.253`
-(the 2026-10-02 dry build used the scratch clone `~/tmp/prefab-prd01`; `~/Development/prefab` on `.253` is a secondary
-clone and is left untouched — Eric, 2026-10-02); `<date>` = `$(date +%Y%m%d)` of the day the step runs.
+Placeholders: `S` = the pinned 40-hex commit that is built and deployed (today `S′`, see § 5); `<repo>` = `.253`'s build
+clone `~/Development/prefab-build`, **detached at `S` and never pulled** (plan § 15.16 R5-2). Until window prep the build
+clone is still `~/tmp/prefab-prd01` (detached at `S′`); at window prep it is moved to `~/Development/prefab-build`.
+`~/Development/prefab` on `.253` is a secondary clone: never built, reset or deployed from (Eric, 2026-10-02). `<date>` =
+`$(date +%Y%m%d)` of the day the step runs.
 
 ## 1. Hosts & layout
 
@@ -98,9 +100,11 @@ Attended fallback: Eric runs the same command in Terminal at `.253`'s screen.
    Expected: `hummingbird` 1.12.0, `hummingbird-core` 1.6.0 (the committed `Package.resolved`), `18` checkouts, the
    tree clean before and after. (`-derivedDataPath` keeps the resolve's activity logs out of a hash-named folder under
    `~/Library/Developer/Xcode/DerivedData`.)
-2. **Check out `S`** (D-1): `cd <repo> && perl -e 'alarm 60; exec @ARGV' git fetch origin </dev/null && git checkout -q
-   epic-1/prd-01-lane-h-substrate && git merge --ff-only -q origin/epic-1/prd-01-lane-h-substrate && git status
-   --porcelain && git rev-parse HEAD` → empty status; HEAD == `S`.
+2. **Check out `S`** (D-1, plan R5-6): `cd <repo> && perl -e 'alarm 60; exec @ARGV' git fetch origin </dev/null && git
+   checkout -q --detach <S> && git status --porcelain && git rev-parse HEAD` → empty status; HEAD == `S`. **Never** a
+   `pull` or `merge --ff-only`: the branch tip is `S` plus docs-only parity commits, and `build-release.sh` / D-7 refuse
+   when HEAD ≠ `S`. If `.253` cannot reach GitHub, push `S` from m3ultra into the clone's remote-tracking ref first:
+   `git push nextgen:<repo path> <S>:refs/remotes/origin/epic-1/prd-01-lane-h-substrate`.
 3. **Release (D-2) and Debug (D-3), through the helper, from ssh:**
    ```bash
    S=<40-hex S>
@@ -138,15 +142,17 @@ docs commit. At the window, step 15's CDHash after the copy and step 18's `/vers
 
 | date | S | sha256 Contents/MacOS/Prefab | CDHash | built_at | profile |
 |---|---|---|---|---|---|
+| 2026-10-02 | b2ca6d35801107019489eb0d4d4d94018eee3af8 | 7fd0c015becce5f4e050b9fd884ad511452d20b2f9083e700c189d0ab84fe3e4 | 876f1e2f3b3c1dc098af276ed61dd0668927fbcb | 2026-10-02T18:07:23Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 | ~~2026-10-02~~ superseded by the QA-remediation S′ (never deployed) | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | e85631b67d167c227103aeded7cb91d5836fd51668665476a6325bc93d90e43c | 536c60739b99eec56c9e7de8b506323613a7914b | 2026-10-02T16:24:27Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 
 **Debug (scratch launches only; `Contents/MacOS/Prefab` is Xcode's debug-dylib stub there):**
 
 | date | S | sha256 Contents/MacOS/Prefab | CDHash | built_at | profile |
 |---|---|---|---|---|---|
+| 2026-10-02 | b2ca6d35801107019489eb0d4d4d94018eee3af8 | a426c7b72c685a596d4810674bf2779ea86054a8d15d886765311f1546f3ac36 | b4ca303dc42edba4250194f13187cbf41f1641ac | 2026-10-02T18:07:58Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 | ~~2026-10-02~~ superseded by the QA-remediation S′ | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | 34505fb8e05fd94a8f4dce39513fc1c11ab5ba93d5c5d2b0be68fa68bd910dd2 | 484248ad44b502083e303978615624cc90fe0061 | 2026-10-02T16:24:54Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 
-Records: `~/Library/Developer/Xcode/DerivedData/prefab-f21d5d3c8b7a-{Release,Debug}.parity.txt` on `.253` (Xcode 26.5 17F42, built in Eric's desktop session through `scripts/run-in-gui-session.sh`; both `checks: all passed`).
+Records: `~/Library/Developer/Xcode/DerivedData/prefab-b2ca6d358011-{Release,Debug}.parity.txt` on `.253` (`S′` = `b2ca6d35801107019489eb0d4d4d94018eee3af8`; Xcode 26.5 17F42; built 2026-10-02 in Eric's desktop session through `scripts/run-in-gui-session.sh` from the build clone; both `checks:  all passed`). `S` `f21d5d3`'s products and records were removed after `S′` passed (its rows above are kept for the record).
 
 ## 6. LaunchServices
 
@@ -270,9 +276,11 @@ the Release parity row (D-8, AC-01-01).
 23 (`?characteristic=` read < 2 s, one `[readOne]` debug-log line), 23a (unknown `characteristicId` → 404
 `what:characteristic`), 23b (unreachable accessory → 503 `unreachable`, no `Attempting write`), 23c (`value:"abc"` to a
 `uint8` → 400 `bad_value`), 23d (post-window debug-log inode check + the release-copy scratch launch, AC-01-42).
-Since RM-4 a `?characteristic=` read whose HomeKit read fails answers 502 `read_failed`. Step 23b takes its "cached
-value" from that read on an **unreachable** accessory, which may now answer 502 — by 23b's own rule no PUT is sent then
-(AC-01-04 BLOCKED); the plan owner decides whether 23b reads the cached value from the full-detail route instead.
+Since RM-4 a `?characteristic=` read whose HomeKit read fails answers 502 `read_failed`. So step 23b (plan R5-7) takes
+its PUT value **from the mirror**: `$P -c "select current_value from sensors where id=512"` (`Shop | 3d Printer`
+`Lightbulb/On`). A null value means the PUT is not sent (AC-01-04 BLOCKED, ask Eric). The read-only
+`?characteristic=` GET still runs, as PT-128 (2)'s record: 502 `read_failed`, 504 or 200. Step 23a carries R5-7's
+400/404 matrix (PT-129).
 
 ## 11. TCC (`kTCCServiceWillow`)
 
