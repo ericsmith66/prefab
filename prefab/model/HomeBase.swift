@@ -156,24 +156,7 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
             "timestamp": ISO8601DateFormatter().string(from: Date())
         ]
         
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
-            return
-        }
-        
-        var request = URLRequest(url: webhookURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Add auth token if configured
-        if let authToken = PrefabConfigManager.shared.config.webhook.authToken {
-            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-        }
-        
-        request.httpBody = jsonData
-        
-        URLSession.shared.dataTask(with: request) { _, _, _ in
-            // Silently send webhooks, errors logged elsewhere if needed
-        }.resume()
+        post(payload, to: webhookURL)
     }
     
     func getHomes() {
@@ -470,28 +453,31 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
             "accessory": accessory.name,
             "characteristic": characteristic.localizedDescription,
             "value": safeValue,
-            "timestamp": dateFormatter.string(from: Date())
+            "timestamp": dateFormatter.string(from: Date()),
+            "accessoryUniqueIdentifier": accessory.uniqueIdentifier.uuidString,                                    // O9
+            "room": accessory.room?.name ?? home(of: accessory)?.roomForEntireHome().name ?? "",                   // O9
+            "characteristicUniqueIdentifier": characteristic.uniqueIdentifier.uuidString,                          // V5-8 / O38
         ]
         
+        post(payload, to: webhookURL)
+    }
+    
+    private func post(_ payload: [String: Any], to url: URL) {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
-            logToFile("⚠️ Failed to serialize webhook payload for \(accessory.name) - \(characteristic.localizedDescription)")
-            return
+            logToFile("⚠️ Failed to serialize webhook payload \(payload["type"] ?? "?")"); return
         }
-        
-        var request = URLRequest(url: webhookURL)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Add auth token if configured
-        if let authToken = PrefabConfigManager.shared.config.webhook.authToken {
+        if let authToken = PrefabConfigManager.shared.config.webhook.authToken {          // D1: Bearer when webhook.authToken is set
             request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         }
-        
         request.httpBody = jsonData
-        
-        URLSession.shared.dataTask(with: request) { _, _, _ in
-            // Silently send webhooks
-        }.resume()
+        URLSession.shared.dataTask(with: request) { _, _, _ in }.resume()
+    }
+
+    private func home(of accessory: HMAccessory) -> HMHome? {
+        homes.first { $0.accessories.contains(where: { $0.uniqueIdentifier == accessory.uniqueIdentifier }) }
     }
     
     // MARK: - HMHomeDelegate (for accessory management)
@@ -514,9 +500,19 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
                 }
             }
         }
+        sendAccessoriesUpdated(home: home, accessory: accessory, change: "added")
     }
     
     func home(_ home: HMHome, didRemove accessory: HMAccessory) {
         accessoryDelegates.remove(accessory)
+        sendAccessoriesUpdated(home: home, accessory: accessory, change: "removed")
+    }
+
+    /// FR-A11 / S3: PRD-1-03's sync trigger. Same URL and auth header as every other webhook.
+    private func sendAccessoriesUpdated(home: HMHome, accessory: HMAccessory, change: String) {
+        guard let webhookURL = HomeBase.eventWebhookURL else { return }
+        post(["type": "accessories_updated", "home": home.name, "accessoryUniqueIdentifier": accessory.uniqueIdentifier.uuidString,
+              "change": change, "timestamp": dateFormatter.string(from: Date())], to: webhookURL)
+        logToFile("accessories_updated change=\(change) uuid=\(accessory.uniqueIdentifier.uuidString) name='\(accessory.name)'")
     }
 }
