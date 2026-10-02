@@ -15,7 +15,9 @@ extension Server {
         if (home == nil) {
             throw HBHTTPError(.notFound)
         }
-        let rooms = home?.rooms.map{Room(home: home!.name, name: $0.name)}
+        var rooms = home!.rooms.map{Room(home: home!.name, name: $0.name)}
+        // P17 (FR-A5): HomeKit's Default Room is not in home.rooms; list it under its own (localized) name.
+        rooms.append(Room(home: home!.name, name: home!.roomForEntireHome().name, isDefaultRoom: true))
         let jsonEncoder = JSONEncoder()
         let jsonData = try jsonEncoder.encode(rooms)
         let json = String(data: jsonData, encoding: String.Encoding.utf8)
@@ -31,11 +33,14 @@ extension Server {
             throw HBHTTPError(.notFound)
         }
         let room = home?.rooms.first(where: {$0.name == roomName.removingPercentEncoding})
-        if (room == nil) {
+        let defaultRoom = home!.roomForEntireHome()
+        // P17 (FR-A5): a user room wins its name; otherwise the Default Room resolves by its name, never the literal "Default Room".
+        if (room == nil && defaultRoom.name != roomName.removingPercentEncoding) {
             throw HBHTTPError(.notFound)
         }
         let jsonEncoder = JSONEncoder()
-        let jsonData = try jsonEncoder.encode(Room(home: home!.name, name: room!.name))
+        let jsonData = try jsonEncoder.encode(room != nil ? Room(home: home!.name, name: room!.name)
+                                                          : Room(home: home!.name, name: defaultRoom.name, isDefaultRoom: true))
         let json = String(data: jsonData, encoding: String.Encoding.utf8)
         
         return json!

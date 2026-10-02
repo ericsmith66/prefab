@@ -14,12 +14,16 @@ struct Home: Encodable, Decodable {
 struct Room: Encodable, Decodable {
     var home: String
     var name: String
+    var isDefaultRoom: Bool?
 }
 
 struct Accessory: Encodable, Decodable {
     var home: String
     var room: String
     var name: String
+    var uniqueIdentifier: String?
+    var isDefaultRoom: Bool?
+    var bridgedBy: String?
     
     var category: String?
     var isReachable: Bool?

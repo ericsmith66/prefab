@@ -11,17 +11,77 @@ import Hummingbird
 import OSLog
 
 extension Server {
-    /// GET /accessories/:home — List all accessories across all rooms (no characteristic reads)
+    func findHome(_ request: HBRequest) throws -> HMHome {
+        let homeName = try getRequiredParam(param: "home", request: request)
+        guard let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding }) else { throw PrefabJSONError.notFound("home") }
+        return home
+    }
+
+    /// P17: an accessory is in the Default Room when it has no room or its room IS roomForEntireHome — never by the literal name.
+    func isDefaultRoom(_ a: HMAccessory, in home: HMHome) -> Bool {
+        guard let room = a.room else { return true }
+        return room.uniqueIdentifier == home.roomForEntireHome().uniqueIdentifier
+    }
+
+    func roomName(_ a: HMAccessory, in home: HMHome) -> String { a.room?.name ?? home.roomForEntireHome().name }
+
+    /// bridged accessory uuid → bridge uuid, inverted from each bridge's uniqueIdentifiersForBridgedAccessories (FR-A5).
+    func bridgeMap(_ home: HMHome) -> [UUID: UUID] {
+        var map: [UUID: UUID] = [:]
+        for bridge in home.accessories { for id in bridge.uniqueIdentifiersForBridgedAccessories ?? [] { map[id] = bridge.uniqueIdentifier } }
+        return map
+    }
+
+    /// Accessories of a room by name over home.accessories, so the Default Room resolves by its localized name.
+    func accessories(in home: HMHome, roomNamed name: String) -> [HMAccessory]? {
+        guard home.rooms.contains(where: { $0.name == name }) || home.roomForEntireHome().name == name else { return nil }
+        return home.accessories.filter { roomName($0, in: home) == name }
+    }
+
+    func findAccessory(byId uuidString: String, in home: HMHome) throws -> HMAccessory {
+        guard let uuid = UUID(uuidString: uuidString), let a = home.accessories.first(where: { $0.uniqueIdentifier == uuid }) else {
+            throw PrefabJSONError.notFound("accessory")
+        }
+        return a
+    }
+
+    func summaryJSON(_ a: HMAccessory, in home: HMHome, bridges: [UUID: UUID]) -> Accessory {
+        Accessory(home: home.name, room: roomName(a, in: home), name: a.name,
+                  uniqueIdentifier: a.uniqueIdentifier.uuidString, isDefaultRoom: isDefaultRoom(a, in: home),
+                  bridgedBy: bridges[a.uniqueIdentifier]?.uuidString, category: a.category.localizedDescription,
+                  isReachable: a.isReachable, isBridged: a.isBridged, firmwareVersion: a.firmwareVersion,
+                  manufacturer: a.manufacturer, model: a.model)
+    }
+
+    func detailJSON(_ a: HMAccessory, in home: HMHome) -> Accessory {
+        var acc = summaryJSON(a, in: home, bridges: bridgeMap(home))
+        acc.supportsIdentify = a.supportsIdentify
+        acc.services = a.services.map { service in
+            Service(uniqueIdentifier: service.uniqueIdentifier, name: service.name,
+                    typeName: getHAPServiceInfo(fromUUIDString: service.serviceType)?.name ?? "", type: service.serviceType,
+                    isPrimary: service.isPrimaryService, isUserInteractive: service.isUserInteractive, associatedType: service.associatedServiceType,
+                    characteristics: service.characteristics.map { char in
+                        Characteristic(uniqueIdentifier: char.uniqueIdentifier, description: char.localizedDescription, properties: char.properties,
+                                       typeName: getHAPCharacteristicInfo(fromUUIDString: char.characteristicType)?.name ?? "", type: char.characteristicType,
+                                       metadata: CharacteristicMetadata(manufacturerDescription: char.metadata?.manufacturerDescription,
+                                                                        validValues: char.metadata?.validValues?.map { $0.stringValue },
+                                                                        minimumValue: char.metadata?.minimumValue?.stringValue, maximumValue: char.metadata?.maximumValue?.stringValue,
+                                                                        stepValue: char.metadata?.stepValue?.stringValue, maxLength: char.metadata?.maxLength?.stringValue,
+                                                                        format: char.metadata?.format, units: char.metadata?.units),
+                                       value: "\(char.value ?? "")")
+                    })
+        }
+        return acc
+    }
+
+    /// GET /accessories/:home — List all accessories over home.accessories (P17: the Default Room included; no characteristic reads)
     /// Optional query filters (all combinable):
     ///   ?reachable=true|false
-    ///   ?room=RoomName
+    ///   ?room=RoomName            (compared with roomName(_:in:), so the Default Room filters by its localized name)
     ///   ?category=CategoryName
     ///   ?manufacturer=ManufacturerName
     func getAllAccessories(_ request: HBRequest) throws -> String {
-        let homeName = try getRequiredParam(param: "home", request: request)
-        guard let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding }) else {
-            throw HBHTTPError(.notFound)
-        }
+        let home = try findHome(request)
 
         let reachableFilter: Bool? = request.uri.queryParameters.get("reachable")
             .flatMap { Bool($0) }
@@ -32,39 +92,25 @@ extension Server {
         let manufacturerFilter: String? = request.uri.queryParameters.get("manufacturer")?
             .removingPercentEncoding
 
+        let bridges = bridgeMap(home)
         var accessories: [Accessory] = []
-        for room in home.rooms {
-            if let filter = roomFilter, room.name != filter { continue }
-            for hmAccessory in room.accessories {
-                if let filter = reachableFilter, hmAccessory.isReachable != filter { continue }
-                if let filter = categoryFilter,
-                   hmAccessory.category.localizedDescription.lowercased() != filter.lowercased() { continue }
-                if let filter = manufacturerFilter,
-                   (hmAccessory.manufacturer ?? "").lowercased() != filter.lowercased() { continue }
-                accessories.append(Accessory(
-                    home: home.name,
-                    room: room.name,
-                    name: hmAccessory.name,
-                    category: hmAccessory.category.localizedDescription,
-                    isReachable: hmAccessory.isReachable,
-                    isBridged: hmAccessory.isBridged,
-                    firmwareVersion: hmAccessory.firmwareVersion,
-                    manufacturer: hmAccessory.manufacturer,
-                    model: hmAccessory.model
-                ))
-            }
+        for hmAccessory in home.accessories {
+            if let filter = roomFilter, roomName(hmAccessory, in: home) != filter { continue }
+            if let filter = reachableFilter, hmAccessory.isReachable != filter { continue }
+            if let filter = categoryFilter,
+               hmAccessory.category.localizedDescription.lowercased() != filter.lowercased() { continue }
+            if let filter = manufacturerFilter,
+               (hmAccessory.manufacturer ?? "").lowercased() != filter.lowercased() { continue }
+            accessories.append(summaryJSON(hmAccessory, in: home, bridges: bridges))
         }
 
         let jsonData = try JSONEncoder().encode(accessories)
         return String(data: jsonData, encoding: .utf8)!
     }
 
-    /// GET /accessories/:home/summary — Counts and rollups for dashboard use
+    /// GET /accessories/:home/summary — Counts and rollups for dashboard use, over home.accessories (P17)
     func getAccessorySummary(_ request: HBRequest) throws -> String {
-        let homeName = try getRequiredParam(param: "home", request: request)
-        guard let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding }) else {
-            throw HBHTTPError(.notFound)
-        }
+        let home = try findHome(request)
 
         var total = 0
         var reachable = 0
@@ -74,24 +120,22 @@ extension Server {
         var unreachableByManufacturer: [String: Int] = [:]
         var unreachableByRoom: [String: Int] = [:]
 
-        for room in home.rooms {
-            for hmAccessory in room.accessories {
-                total += 1
-                let category = hmAccessory.category.localizedDescription.isEmpty
-                    ? "Uncategorized" : hmAccessory.category.localizedDescription
-                let manufacturer = (hmAccessory.manufacturer ?? "Unknown")
-                let roomName = room.name
+        for hmAccessory in home.accessories {
+            total += 1
+            let category = hmAccessory.category.localizedDescription.isEmpty
+                ? "Uncategorized" : hmAccessory.category.localizedDescription
+            let manufacturer = (hmAccessory.manufacturer ?? "Unknown")
+            let room = roomName(hmAccessory, in: home)
 
-                byCategory[category, default: 0] += 1
-                byRoom[roomName, default: 0] += 1
-                byManufacturer[manufacturer, default: 0] += 1
+            byCategory[category, default: 0] += 1
+            byRoom[room, default: 0] += 1
+            byManufacturer[manufacturer, default: 0] += 1
 
-                if hmAccessory.isReachable {
-                    reachable += 1
-                } else {
-                    unreachableByManufacturer[manufacturer, default: 0] += 1
-                    unreachableByRoom[roomName, default: 0] += 1
-                }
+            if hmAccessory.isReachable {
+                reachable += 1
+            } else {
+                unreachableByManufacturer[manufacturer, default: 0] += 1
+                unreachableByRoom[room, default: 0] += 1
             }
         }
 
@@ -110,26 +154,14 @@ extension Server {
         return String(data: jsonData, encoding: .utf8)!
     }
 
+    /// GET /accessories/:home/:room — the room's accessories over home.accessories; the Default Room resolves by its name (P17)
     func getAccessories(_ request: HBRequest) throws -> String {
-        let homeName = try getRequiredParam(param: "home", request: request)
-        let roomName = try getRequiredParam(param: "room", request: request)
-        let home = homeBase.homes.first(where: {$0.name == homeName.removingPercentEncoding})
-        if (home == nil) {
-            throw HBHTTPError(.notFound)
-        }
-        let room = home?.rooms.first(where: {$0.name == roomName.removingPercentEncoding})
-        if (room == nil) {
-            throw HBHTTPError(.notFound)
-        }
-        
-        let accessories = room?.accessories.map{ (hmAccessory: HMAccessory) -> Accessory in 
-            Accessory(home: home!.name, room: room!.name, name: hmAccessory.name, category: hmAccessory.category.localizedDescription)
-        }
-        let jsonEncoder = JSONEncoder()
-        let jsonData = try jsonEncoder.encode(accessories)
-        let json = String(data: jsonData, encoding: String.Encoding.utf8)
-        
-        return json!
+        let home = try findHome(request)
+        let room = try getRequiredParam(param: "room", request: request).removingPercentEncoding ?? ""
+        guard let list = accessories(in: home, roomNamed: room) else { throw PrefabJSONError.notFound("room") }
+        let bridges = bridgeMap(home)
+        let jsonData = try JSONEncoder().encode(list.map { summaryJSON($0, in: home, bridges: bridges) })
+        return String(data: jsonData, encoding: .utf8)!
     }
     
     
