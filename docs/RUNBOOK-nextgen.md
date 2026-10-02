@@ -24,11 +24,19 @@ clone and is left untouched — Eric, 2026-10-02); `<date>` = `$(date +%Y%m%d)` 
   **Debug log:** `~/Documents/homebase_debug.log` (written only when `logging.enabled` is true; recreated at every
   start). Overrides, honoured by every build and reported by `/version`: `PREFAB_PORT` (1024–65535),
   `PREFAB_CONFIG_PATH`, `PREFAB_LOG_PATH` (absolute paths); a bad value exits 2 with `prefab: invalid <NAME>` on stderr.
-  Debug builds only: `PREFAB_FORCE_UNAUTHORIZED=1`, `PREFAB_FAULT=write_failed|write_timeout` (release builds compile
-  them out).
+  All of them are validated together on the first line of `Server.init`, before the config is read, the debug log is
+  recreated or HomeKit is touched (QA remediation RM-2). Debug builds only: `PREFAB_FORCE_UNAUTHORIZED=1`,
+  `PREFAB_FAULT=write_failed|write_timeout`; any other `PREFAB_FORCE_UNAUTHORIZED` value, or any other non-empty
+  `PREFAB_FAULT`, exits 2 at launch (`prefab: invalid PREFAB_FORCE_UNAUTHORIZED` / `… PREFAB_FAULT`, RM-3) — a mistyped
+  switch never falls through to a real write. Release builds compile both switches out.
 - **Timeouts (Prefab side of the ladder):** write 4 s → 504 `write_timeout`; scene 25 s → 504 `scene_timeout`;
   full-detail read 12 s → 504 `read_timeout`; single-characteristic read 5 s → 504 `read_timeout`.
-  `/version.timeouts` reports them.
+  `/version.timeouts` reports them. A single-characteristic read whose HomeKit read fails answers 502
+  `{"error":"read_failed","hm_code":…,"message":…}` (RM-4) — never the cached value; the full-detail read still
+  returns HomeKit's cached values when individual reads fail.
+- **Accessory JSON:** every item carries `uniqueIdentifier`, `room`, `isDefaultRoom` and `bridgedBy` — `null` when the
+  accessory is not bridged (RM-1); the single-characteristic read always carries `value` and `format` (`null` when
+  HomeKit has none).
 - **Source tree:** the Xcode app target compiles `prefab/http` + `prefab/model` (+ `prefab/*.swift`).
   `Sources/PrefabServer/` is a divergent SwiftPM copy the target does not reference — never edit it (S16, Q-A3).
   `prefab/http/Data.swift` and `prefab/model/HAPUUIDs.swift` are also compiled into the `prefab` CLI target, which
@@ -114,6 +122,10 @@ Attended fallback: Eric runs the same command in Terminal at `.253`'s screen.
 6. **Dry build days before the window.** The D-2 product must survive until the window (it is not in `/tmp`).
 7. **Unsigned compile checks** (no keychain): add `CODE_SIGNING_ALLOWED=NO` and a `/tmp` `-derivedDataPath`; afterwards
    `lsregister -u` that product (§ 6).
+8. **Any other `xcodebuild` call** (e.g. `-list`, `-resolvePackageDependencies`) also gets a `/tmp` `-derivedDataPath`,
+   or Xcode creates a hash-named folder under `~/Library/Developer/Xcode/DerivedData`; `xcodebuild -list` then also
+   needs `-scheme Prefab` (Xcode 26.2 exits 64 without it): `xcodebuild -list -project prefab.xcodeproj -scheme Prefab
+   -derivedDataPath /tmp/<dir>`.
 
 ## 5. Parity record
 
@@ -126,13 +138,13 @@ docs commit. At the window, step 15's CDHash after the copy and step 18's `/vers
 
 | date | S | sha256 Contents/MacOS/Prefab | CDHash | built_at | profile |
 |---|---|---|---|---|---|
-| 2026-10-02 | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | e85631b67d167c227103aeded7cb91d5836fd51668665476a6325bc93d90e43c | 536c60739b99eec56c9e7de8b506323613a7914b | 2026-10-02T16:24:27Z | d29ac58d-0875-4558-af32-4a98310ed221 |
+| ~~2026-10-02~~ superseded by the QA-remediation S′ (never deployed) | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | e85631b67d167c227103aeded7cb91d5836fd51668665476a6325bc93d90e43c | 536c60739b99eec56c9e7de8b506323613a7914b | 2026-10-02T16:24:27Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 
 **Debug (scratch launches only; `Contents/MacOS/Prefab` is Xcode's debug-dylib stub there):**
 
 | date | S | sha256 Contents/MacOS/Prefab | CDHash | built_at | profile |
 |---|---|---|---|---|---|
-| 2026-10-02 | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | 34505fb8e05fd94a8f4dce39513fc1c11ab5ba93d5c5d2b0be68fa68bd910dd2 | 484248ad44b502083e303978615624cc90fe0061 | 2026-10-02T16:24:54Z | d29ac58d-0875-4558-af32-4a98310ed221 |
+| ~~2026-10-02~~ superseded by the QA-remediation S′ | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | 34505fb8e05fd94a8f4dce39513fc1c11ab5ba93d5c5d2b0be68fa68bd910dd2 | 484248ad44b502083e303978615624cc90fe0061 | 2026-10-02T16:24:54Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 
 Records: `~/Library/Developer/Xcode/DerivedData/prefab-f21d5d3c8b7a-{Release,Debug}.parity.txt` on `.253` (Xcode 26.5 17F42, built in Eric's desktop session through `scripts/run-in-gui-session.sh`; both `checks: all passed`).
 
@@ -162,8 +174,9 @@ of Eric's (`~/Library/Developer/Xcode/DerivedData/prefab-faptzqxnfvnxsleiymoahon
 ## 7. Scratch launch rules (O30; plan § 15.11 D-4/D-5 + R4-5)
 
 - Every scratch launch sets **all three** overrides: `PREFAB_PORT=8081`, `PREFAB_CONFIG_PATH=/tmp/prefab-scratch/config.json`,
-  `PREFAB_LOG_PATH=/tmp/prefab-scratch/homebase_debug.log`. Never the production config or log path: the binary reads
-  its config and recreates its debug log before it parses the port.
+  `PREFAB_LOG_PATH=/tmp/prefab-scratch/homebase_debug.log`. Never the production config or log path: a running scratch
+  instance reads its config and recreates its debug log at start. (Since RM-2 a bad value exits before either happens;
+  the all-three rule stays as defence in depth.)
 - Scratch config: `umask 077`; `webhook.enabled:false` and `authToken` removed, `polling.enabled:false`,
   `logging.enabled:true`, everything else as production:
   ```bash
@@ -181,7 +194,8 @@ of Eric's (`~/Library/Developer/Xcode/DerivedData/prefab-faptzqxnfvnxsleiymoahon
   helper with `--timeout 60`; Eric's Terminal at `.253`'s screen is the last resort.
 - Stop scratch instances **only by their own path**: `pkill -f "$DBG/Prefab.app/Contents/MacOS/Prefab"` — never the
   production process.
-- Exit-2 checks always carry the scratch paths; the numeric status comes from the helper (no HomeKit is needed):
+- Exit-2 checks always carry the scratch paths; the numeric status comes from the helper (no HomeKit is needed — since
+  RM-2 the binary exits on the first line of `Server.init`, before `HomeBase`/`HMHomeManager` exist):
   ```bash
   H=<repo>/scripts/run-in-gui-session.sh
   $H --timeout 60 -- /usr/bin/env PREFAB_PORT=80 PREFAB_CONFIG_PATH=/tmp/prefab-scratch/config.json PREFAB_LOG_PATH=/tmp/prefab-scratch/homebase_debug.log \
@@ -241,7 +255,7 @@ prefab_start_check() {                             # after every bootstrap: exac
 | 12 | parity row checked; `cp "$HOME/Library/Application Support/com.apple.TCC/TCC.db" "$HOME/Library/Application Support/com.apple.TCC/TCC.db.bak-<date>"`; the TCC query of § 11 | backup exists; `2\|…` recorded (before) | — |
 | 13 | `curl -s 127.0.0.1:8080/accessories/Waverly \| python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'` → `N_before`; `tail -1 ~/Library/Logs/homekit-feed-check.log`; `$P -c "$AGE"` | recorded — **T0** | — |
 | 14 | `prefab_stop` | `prefab stopped` | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ericsmith66.prefab.plist; prefab_start_check` (old binary: `/version` 404, `/homes` 200) |
-| 15 | `mv ~/Applications/Server/Prefab.app ~/Applications/Server/Prefab.app.prev-<date> && cp -R ~/Library/Developer/Xcode/DerivedData/prefab-<S12>-Release/Build/Products/Release-maccatalyst/Prefab.app ~/Applications/Server/Prefab.app && codesign -dvvv ~/Applications/Server/Prefab.app 2>&1 \| grep -E '^CDHash'` (the source is the D-2 `.app` itself) | CDHash == the Release parity row | `rm -rf ~/Applications/Server/Prefab.app && mv ~/Applications/Server/Prefab.app.prev-<date> ~/Applications/Server/Prefab.app` |
+| 15 | `mv ~/Applications/Server/Prefab.app ~/Applications/Server/Prefab.app.prev-<date> && cp -R ~/Library/Developer/Xcode/DerivedData/prefab-<S12>-Release/Build/Products/Release-maccatalyst/Prefab.app ~/Applications/Server/Prefab.app && codesign -dvvv ~/Applications/Server/Prefab.app 2>&1 \| grep -E '^CDHash' && codesign --verify --strict --deep ~/Applications/Server/Prefab.app && shasum -a 256 ~/Applications/Server/Prefab.app/Contents/MacOS/Prefab` (the source is the D-2 `.app` itself; QA m4) | CDHash and sha256 == the Release parity row; `--verify` rc 0 | `rm -rf ~/Applications/Server/Prefab.app && mv ~/Applications/Server/Prefab.app.prev-<date> ~/Applications/Server/Prefab.app` |
 | 16a | `cp -p "$HOME/Library/Application Support/Prefab/config.json" "$HOME/Library/Application Support/Prefab/config.json.bak-<date>"` | backup exists | — |
 | 16 | webhook token, § 12 | `['authToken', 'enabled', 'url']`; `-rw-------` | `cp -p "…/config.json.bak-<date>" "…/config.json" && chmod 600 "…/config.json"` |
 | 17 | credential + PR 1b + ONE Rails restart + Prefab start (plan § 15.10 step 17): `append-cred.sh` for `prefab_webhook_token`, `credentials_ok`, `git merge --ff-only "$B"`, `launchctl kickstart -k gui/$(id -u)/com.ericsmith66.eureka`, `/up` 200, then `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ericsmith66.prefab.plist; prefab_start_check` | one NEW pid; `/version` 200 with `git_sha` == `S` | plan § 15.10 step 17 rollback (PR 1a merge checked out, credential removed, step 16 rollback, `prefab_stop`, bootstrap) |
@@ -256,6 +270,9 @@ the Release parity row (D-8, AC-01-01).
 23 (`?characteristic=` read < 2 s, one `[readOne]` debug-log line), 23a (unknown `characteristicId` → 404
 `what:characteristic`), 23b (unreachable accessory → 503 `unreachable`, no `Attempting write`), 23c (`value:"abc"` to a
 `uint8` → 400 `bad_value`), 23d (post-window debug-log inode check + the release-copy scratch launch, AC-01-42).
+Since RM-4 a `?characteristic=` read whose HomeKit read fails answers 502 `read_failed`. Step 23b takes its "cached
+value" from that read on an **unreachable** accessory, which may now answer 502 — by 23b's own rule no PUT is sent then
+(AC-01-04 BLOCKED); the plan owner decides whether 23b reads the cached value from the full-detail route instead.
 
 ## 11. TCC (`kTCCServiceWillow`)
 
