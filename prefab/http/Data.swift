@@ -136,6 +136,10 @@ struct SceneAction: Encodable, Decodable {
     var serviceName: String
     var characteristicType: String
     var targetValue: String
+    var accessoryUniqueIdentifier: String?
+    var serviceUniqueIdentifier: String?
+    var serviceType: String?
+    var characteristicUniqueIdentifier: String?
 }
 
 /// Detailed scene info including actions
@@ -145,6 +149,8 @@ struct SceneDetail: Encodable, Decodable {
     var name: String
     var isBuiltIn: Bool
     var actions: [SceneAction]
+    var totalActions: Int?
+    var decodedActions: Int?
 }
 
 // MARK: - Accessory Groups

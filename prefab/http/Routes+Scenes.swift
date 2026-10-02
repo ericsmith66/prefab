@@ -41,34 +41,22 @@ extension Server {
         let homeName = try getRequiredParam(param: "home", request: request)
         let sceneId = try getRequiredParam(param: "scene", request: request)
         
-        guard let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding }) else {
-            throw HBHTTPError(.notFound)
+        guard let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding }) else { throw PrefabJSONError.notFound("home") }
+        guard let sceneUUID = UUID(uuidString: sceneId), let actionSet = home.actionSets.first(where: { $0.uniqueIdentifier == sceneUUID }) else {
+            throw PrefabJSONError.notFound("scene")
         }
-        
-        guard let sceneUUID = UUID(uuidString: sceneId),
-              let actionSet = home.actionSets.first(where: { $0.uniqueIdentifier == sceneUUID }) else {
-            throw HBHTTPError(.notFound)
+        let writeActions = actionSet.actions.compactMap { $0 as? HMCharacteristicWriteAction<NSCopying> }
+        let actions = writeActions.map { a in
+            SceneAction(accessoryName: a.characteristic.service?.accessory?.name ?? "", serviceName: a.characteristic.service?.name ?? "",
+                        characteristicType: a.characteristic.characteristicType, targetValue: "\(a.targetValue)",
+                        accessoryUniqueIdentifier: a.characteristic.service?.accessory?.uniqueIdentifier.uuidString,
+                        serviceUniqueIdentifier: a.characteristic.service?.uniqueIdentifier.uuidString,
+                        serviceType: a.characteristic.service?.serviceType,
+                        characteristicUniqueIdentifier: a.characteristic.uniqueIdentifier.uuidString)
         }
-        
-        let actions = actionSet.actions.compactMap { action -> SceneAction? in
-            guard let charAction = action as? HMCharacteristicWriteAction<NSCopying> else {
-                return nil
-            }
-            return SceneAction(
-                accessoryName: charAction.characteristic.service?.accessory?.name ?? "",
-                serviceName: charAction.characteristic.service?.name ?? "",
-                characteristicType: charAction.characteristic.characteristicType,
-                targetValue: "\(charAction.targetValue)"
-            )
-        }
-        
-        let sceneDetail = SceneDetail(
-            home: home.name,
-            uniqueIdentifier: actionSet.uniqueIdentifier,
-            name: actionSet.name,
-            isBuiltIn: actionSet.actionSetType != HMActionSetTypeUserDefined,
-            actions: actions
-        )
+        let sceneDetail = SceneDetail(home: home.name, uniqueIdentifier: actionSet.uniqueIdentifier, name: actionSet.name,
+                                      isBuiltIn: actionSet.actionSetType != HMActionSetTypeUserDefined, actions: actions,
+                                      totalActions: actionSet.actions.count, decodedActions: writeActions.count)
         
         let jsonEncoder = JSONEncoder()
         let jsonData = try jsonEncoder.encode(sceneDetail)
@@ -85,13 +73,13 @@ extension Server {
         
         guard let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding }) else {
             logger.error("Home not found: \(homeName, privacy: .public)")
-            throw HBHTTPError(.notFound)
+            throw PrefabJSONError.notFound("home")
         }
         
         guard let sceneUUID = UUID(uuidString: sceneId),
               let actionSet = home.actionSets.first(where: { $0.uniqueIdentifier == sceneUUID }) else {
             logger.error("Scene not found: \(sceneId, privacy: .public)")
-            throw HBHTTPError(.notFound)
+            throw PrefabJSONError.notFound("scene")
         }
         
         logger.debug("Executing scene: \(actionSet.name, privacy: .public)")
@@ -108,10 +96,10 @@ extension Server {
             }
             group.leave()
         }
-        group.wait()
+        if group.wait(timeout: .now() + PrefabTimeouts.sceneSeconds) == .timedOut { throw PrefabJSONError(status: .gatewayTimeout, payload: ["error": "scene_timeout"]) }
         
         if let error = executeError {
-            throw HBHTTPError(.internalServerError, message: error.localizedDescription)
+            throw PrefabJSONError(status: .internalServerError, payload: ["error": "scene_failed", "message": error.localizedDescription])
         }
         
         let response = ["success": true, "scene": actionSet.name] as [String: Any]
