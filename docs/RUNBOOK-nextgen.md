@@ -126,19 +126,24 @@ docs commit. At the window, step 15's CDHash after the copy and step 18's `/vers
 
 | date | S | sha256 Contents/MacOS/Prefab | CDHash | built_at | profile |
 |---|---|---|---|---|---|
+| 2026-10-02 | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | e85631b67d167c227103aeded7cb91d5836fd51668665476a6325bc93d90e43c | 536c60739b99eec56c9e7de8b506323613a7914b | 2026-10-02T16:24:27Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 
 **Debug (scratch launches only; `Contents/MacOS/Prefab` is Xcode's debug-dylib stub there):**
 
 | date | S | sha256 Contents/MacOS/Prefab | CDHash | built_at | profile |
 |---|---|---|---|---|---|
+| 2026-10-02 | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | 34505fb8e05fd94a8f4dce39513fc1c11ab5ba93d5c5d2b0be68fa68bd910dd2 | 484248ad44b502083e303978615624cc90fe0061 | 2026-10-02T16:24:54Z | d29ac58d-0875-4558-af32-4a98310ed221 |
+
+Records: `~/Library/Developer/Xcode/DerivedData/prefab-f21d5d3c8b7a-{Release,Debug}.parity.txt` on `.253` (Xcode 26.5 17F42, built in Eric's desktop session through `scripts/run-in-gui-session.sh`; both `checks: all passed`).
 
 ## 6. LaunchServices
 
 - Production starts by path (`open -W ~/Applications/Server/Prefab.app`), so stray copies cannot hijack it. Nothing
   may open Prefab by bundle id (`open -b com.ericsmith66.prefab`, AppleScript `application id`, URL handlers).
 - Xcode's `RegisterWithLaunchServices` step registers every product it builds, and `open` registers what it launches.
-  `build-release.sh` unregisters its product right after the build. Unregister every other agent-made product once it is
-  no longer needed: after the scratch launches `"$DBG/Prefab.app"`; after step 23d `/tmp/prefab-scratch/Prefab-release.app`
+  `build-release.sh` runs `lsregister -u` on its product right after the build — but on 2026-10-02 both § 9 products
+  (`prefab-f21d5d3c8b7a-Release`, `-Debug`) were registered again about 2 s later (LaunchServices `reg date` 2 s after the
+  signing time), so always confirm with the dump below. Unregister every agent-made product once it is no longer needed: after the scratch launches `"$DBG/Prefab.app"`; after step 23d `/tmp/prefab-scratch/Prefab-release.app`
   (before the directory is removed); unsigned compile products.
 - **Only ever `lsregister -u <agent-made path>`.** Never `-kill`, `-delete`, `-r` or `-R` scans; never on
   `~/Applications/Server/Prefab.app` or on Eric's older copies. Nothing at the window runs `lsregister`.
@@ -149,7 +154,7 @@ LSREG=/System/Library/Frameworks/CoreServices.framework/Versions/Current/Framewo
 "$LSREG" -dump 2>/dev/null | awk '/^path:/{p=$0} /^identifier:[[:space:]]+com\.ericsmith66\.prefab$/{print p}' | sort -u   # read-only
 ```
 
-On 2026-10-02 the dump listed five paths: `~/Applications/Server/Prefab.app` (production) and four older Xcode copies
+Before the § 9 builds of 2026-10-02 the dump listed five paths: `~/Applications/Server/Prefab.app` (production) and four older Xcode copies
 of Eric's (`~/Library/Developer/Xcode/DerivedData/prefab-faptzqxnfvnxsleiymoahonhqebb/…`, two under
 `/Volumes/ericsmith66/Library/Developer/Xcode/DerivedData/prefab-*/…`, and
 `/Volumes/ericsmith66/development/legion/projects/prefab/build/Build/Products/Release-maccatalyst/Prefab.app`).
