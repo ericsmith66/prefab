@@ -47,10 +47,7 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
     
     /// File logger
     private var logFileHandle: FileHandle?
-    private let logFilePath: URL = {
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return documentsPath.appendingPathComponent("homebase_debug.log")
-    }()
+    private let logFilePath = URL(fileURLWithPath: PrefabEnvironment.logPath)
     
     /// Cached date formatter for efficient logging
     private let dateFormatter: ISO8601DateFormatter = {
@@ -369,7 +366,7 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
         logToFile(header)
     }
     
-    private func logToFile(_ message: String) {
+    func logToFile(_ message: String) {
         // Early exit if logging disabled - don't even format the string
         guard configManager.config.logging.enabled else { return }
         guard let handle = logFileHandle else { return }

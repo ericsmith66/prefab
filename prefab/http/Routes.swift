@@ -11,7 +11,45 @@ import Hummingbird
 import OSLog
 
 extension Server {
-    func getRoot(_ request: HBRequest) throws -> String {
-        return ""
+    /// GET /version (FR-A2) — exempt from the HomeKit auth middleware, so parity is provable even at 403.
+    func getVersion(_ request: HBRequest) throws -> String {
+        let info = VersionInfo(
+            git_sha: PrefabBuildInfo.current.gitSHA, git_dirty: PrefabBuildInfo.current.gitDirty,
+            built_at: PrefabBuildInfo.current.builtAt, bundle_version: PrefabBuildInfo.bundleVersion,
+            bind: "127.0.0.1:\(PrefabEnvironment.port)", bonjour: false,
+            config_path: PrefabEnvironment.configPath, debug_log: PrefabEnvironment.logPath,
+            timeouts: VersionTimeouts())
+        return String(data: try JSONEncoder().encode(info), encoding: .utf8)!
     }
+}
+
+// MARK: - PRD-1-01 (FR-A2/A3/A4): version, single-characteristic read, write result, typed JSON errors
+
+struct VersionTimeouts: Encodable {
+    var write_s = Int(PrefabTimeouts.writeSeconds)
+    var scene_s = Int(PrefabTimeouts.sceneSeconds)
+    var read_all_s = Int(PrefabTimeouts.readAllSeconds)
+    var read_one_s = Int(PrefabTimeouts.readOneSeconds)
+}
+
+struct VersionInfo: Encodable {
+    var git_sha: String; var git_dirty: Bool; var built_at: String; var bundle_version: String
+    var bind: String; var bonjour: Bool; var config_path: String; var debug_log: String
+    var timeouts: VersionTimeouts
+}
+
+struct CharacteristicValue: Encodable { var uniqueIdentifier: String; var type: String; var typeName: String; var value: String?; var format: String? }
+struct CharacteristicRead: Encodable { var uniqueIdentifier: String; var isReachable: Bool; var characteristic: CharacteristicValue }
+struct WriteResult: Encodable { var ok: Bool; var characteristicId: String; var value: String }
+
+/// Typed JSON error with the right status; Hummingbird renders any thrown HBHTTPResponseError as the response.
+struct PrefabJSONError: Error, HBHTTPResponseError {
+    let status: HTTPResponseStatus
+    let payload: [String: Any]
+    var headers: HTTPHeaders { ["content-type": "application/json; charset=utf-8"] }
+    func body(allocator: ByteBufferAllocator) -> ByteBuffer? {
+        let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])) ?? Data("{\"error\":\"internal\"}".utf8)
+        return allocator.buffer(data: data)
+    }
+    static func notFound(_ what: String) -> PrefabJSONError { .init(status: .notFound, payload: ["error": "not_found", "what": what]) }
 }
