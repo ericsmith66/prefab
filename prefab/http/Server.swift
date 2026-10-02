@@ -58,6 +58,7 @@ class Server  {
             app.router.get("accessories/:home/summary", use: self.getAccessorySummary)
             app.router.get("accessories/:home", use: self.getAllAccessories)
             app.router.get("accessories/:home/id/:uuid", use: self.getAccessoryById)       // FR-A4; the trie matches the literal "id" before :room
+            app.router.put("accessories/:home/id/:uuid", use: self.updateAccessoryById)    // FR-A4
             app.router.get("accessories/:home/:room", use: self.getAccessories)
             app.router.get("accessories/:home/:room/:accessory", use: self.getAccessory)
             app.router.put("accessories/:home/:room/:accessory", use: self.updateAccessory)

@@ -214,106 +214,77 @@ extension Server {
         return String(data: try JSONEncoder().encode(detailJSON(accessory, in: home)), encoding: .utf8)!
     }
 
+    /// PUT /accessories/:home/id/:uuid (FR-A4) — same contract as the name route (Task A5).
+    func updateAccessoryById(_ request: HBRequest) throws -> String {
+        let home = try findHome(request)
+        return try performWrite(request, accessory: try findAccessory(byId: try getRequiredParam(param: "uuid", request: request), in: home))
+    }
+
+    /// PUT /accessories/:home/:room/:accessory (name route; the dashboard sync uses it until PRD-1-03).
     func updateAccessory(_ request: HBRequest) throws -> String {
-        let logger = Logger(subsystem: "app.prefab", category: "updateAccessory")
-        logger.debug("updateAccessory called")
+        let home = try findHome(request)
+        let room = try getRequiredParam(param: "room", request: request).removingPercentEncoding ?? ""
+        let name = try getRequiredParam(param: "accessory", request: request).removingPercentEncoding ?? ""
+        guard let list = accessories(in: home, roomNamed: room) else { throw PrefabJSONError.notFound("room") }
+        guard let accessory = list.first(where: { $0.name == name }) else { throw PrefabJSONError.notFound("accessory") }
+        return try performWrite(request, accessory: accessory)
+    }
 
-        // Ensure request body exists to avoid force-unwrapping crashes
-        guard let bodyBuffer = request.body.buffer else {
-            logger.error("Request body is missing.")
-            throw HBHTTPError(.badRequest, message: "Missing request body.")
+    /// FR-A3. Status codes and `error` strings are normative. Debug log (logToFile, precondition logging.enabled):
+    /// "[updateAccessory] <requestId> <characteristicUUID> → <status> <error|ok>"; "Attempting write" is logged
+    /// immediately before writeValue and never when no write is attempted (AC-01-04/06).
+    func performWrite(_ request: HBRequest, accessory: HMAccessory) throws -> String {
+        let requestId = request.id
+        let log = HomeBase.shared
+        func fail(_ status: HTTPResponseStatus, _ payload: [String: Any], charId: String = "-") -> PrefabJSONError {
+            log.logToFile("[updateAccessory] \(requestId) \(charId) → \(status.code) \(payload["error"] ?? "")")
+            return PrefabJSONError(status: status, payload: payload)
         }
-
-        // Log raw request body for debugging
-        if let rawJSON = bodyBuffer.getString(at: bodyBuffer.readerIndex, length: bodyBuffer.readableBytes) {
-            logger.debug("Raw request body: \(rawJSON, privacy: .public)")
-        } else {
-            logger.debug("Raw request body could not be decoded as UTF-8. Byte count: \(bodyBuffer.readableBytes, privacy: .public)")
+        guard let bodyBuffer = request.body.buffer, bodyBuffer.readableBytes > 0,
+              let input = try? JSONDecoder().decode(UpdateAccessoryInput.self, from: bodyBuffer) else {
+            throw fail(.badRequest, ["error": "bad_request"])
         }
-
-        // Decode input
-        let updateAccessoryInput: UpdateAccessoryInput
-        do {
-            updateAccessoryInput = try JSONDecoder().decode(UpdateAccessoryInput.self, from: bodyBuffer)
-            logger.debug("Decoded UpdateAccessoryInput: serviceId=\(updateAccessoryInput.serviceId, privacy: .public), characteristicId=\(updateAccessoryInput.characteristicId, privacy: .public), value=\(updateAccessoryInput.value, privacy: .public)")
-        } catch {
-            logger.error("Failed to decode UpdateAccessoryInput: \(error.localizedDescription, privacy: .public)")
-            throw HBHTTPError(.badRequest, message: "Invalid update object.")
+        guard let hkService = accessory.services.first(where: { $0.uniqueIdentifier.uuidString.caseInsensitiveCompare(input.serviceId) == .orderedSame }) else {
+            throw fail(.notFound, ["error": "not_found", "what": "service"])
         }
-
-        // Extract params
-        let homeName = try getRequiredParam(param: "home", request: request)
-        let roomName = try getRequiredParam(param: "room", request: request)
-        let accessoryName = try getRequiredParam(param: "accessory", request: request)
-        logger.debug("Params home=\(homeName, privacy: .public), room=\(roomName, privacy: .public), accessory=\(accessoryName, privacy: .public)")
-
-        // Locate Home
-        let home = homeBase.homes.first(where: { $0.name == homeName.removingPercentEncoding })
-        guard let home else {
-            logger.error("Home not found: \(homeName, privacy: .public)")
-            throw HBHTTPError(.notFound)
+        guard let hkChar = hkService.characteristics.first(where: { $0.uniqueIdentifier.uuidString.caseInsensitiveCompare(input.characteristicId) == .orderedSame }) else {
+            throw fail(.notFound, ["error": "not_found", "what": "characteristic"])
         }
-        logger.debug("Found home: \(home.name, privacy: .public)")
+        let charId = hkChar.uniqueIdentifier.uuidString
 
-        // Locate Room
-        let room = home.rooms.first(where: { $0.name == roomName.removingPercentEncoding })
-        guard let room else {
-            logger.error("Room not found: \(roomName, privacy: .public)")
-            throw HBHTTPError(.notFound)
-        }
-        logger.debug("Found room: \(room.name, privacy: .public)")
-
-        // Locate Accessory
-        let hkAccessory = room.accessories.first(where: { $0.name == accessoryName.removingPercentEncoding })
-        guard let hkAccessory else {
-            logger.error("Accessory not found: \(accessoryName, privacy: .public)")
-            throw HBHTTPError(.notFound)
-        }
-        logger.debug("Found accessory: \(hkAccessory.name, privacy: .public) reachable=\(hkAccessory.isReachable, privacy: .public)")
-
-        // Locate Service
-        let hkService = hkAccessory.services.first(where: { $0.uniqueIdentifier.uuidString == updateAccessoryInput.serviceId })
-        guard let hkService else {
-            logger.error("Service not found: \(updateAccessoryInput.serviceId, privacy: .public)")
-            throw HBHTTPError(.notFound)
-        }
-        logger.debug("Found service: \(hkService.name, privacy: .public) type=\(hkService.serviceType, privacy: .public)")
-
-        // Locate Characteristic
-        let hkChar = hkService.characteristics.first(where: { $0.uniqueIdentifier.uuidString == updateAccessoryInput.characteristicId })
-        guard let hkChar else {
-            logger.error("Characteristic not found: \(updateAccessoryInput.characteristicId, privacy: .public)")
-            throw HBHTTPError(.notFound)
-        }
-        logger.debug("Found characteristic: \(hkChar.localizedDescription, privacy: .public) type=\(hkChar.characteristicType, privacy: .public) format=\(hkChar.metadata?.format ?? "nil", privacy: .public) properties=\(hkChar.properties.joined(separator: ","), privacy: .public)")
-
-        // Prepare value for write
-        let valueToWrite: Any
-        do {
-            valueToWrite = try GetValue(value: updateAccessoryInput.value, format: hkChar.metadata?.format ?? "")
-            logger.debug("Prepared value to write: \(String(describing: valueToWrite), privacy: .public)")
-        } catch {
-            logger.error("Failed to convert value '\(updateAccessoryInput.value, privacy: .public)' with format '\(hkChar.metadata?.format ?? "nil", privacy: .public)': \(error.localizedDescription, privacy: .public)")
-            throw error
-        }
-
-        logger.debug("Attempting write to characteristic \(hkChar.uniqueIdentifier.uuidString, privacy: .public)")
-
-        let group = DispatchGroup()
-        group.enter()
-        hkChar.writeValue(valueToWrite) { error in
-            if let error {
-                logger.error("writeValue completion with error: \(error.localizedDescription, privacy: .public)")
-            } else {
-                logger.debug("writeValue completed successfully.")
+        #if DEBUG
+        // V5-10: PREFAB_FAULT short-circuits after the characteristic is resolved and before decoding/writeValue — nothing is actuated.
+        if let fault = PrefabEnvironment.fault {
+            if fault == "write_timeout" {
+                Thread.sleep(forTimeInterval: PrefabTimeouts.writeSeconds)
+                throw fail(.gatewayTimeout, ["error": "write_timeout"], charId: charId)
             }
-            group.leave()
+            throw fail(.badGateway, ["error": "write_failed", "hm_code": -1, "message": "injected by PREFAB_FAULT"], charId: charId)
+        }
+        #endif
+
+        guard accessory.isReachable else { throw fail(.serviceUnavailable, ["error": "unreachable"], charId: charId) }   // no write attempted
+
+        let format = hkChar.metadata?.format ?? ""
+        guard let valueToWrite = try? GetValue(value: input.value, format: format) else {
+            throw fail(.badRequest, ["error": "bad_value", "format": format], charId: charId)
         }
 
-        group.wait()
-        logger.debug("writeValue wait completed.")
-
-        return ""
+        log.logToFile("[updateAccessory] \(requestId) \(charId) Attempting write value=\(input.value)")
+        let box = ErrorBox()
+        let group = DispatchGroup(); group.enter()
+        hkChar.writeValue(valueToWrite) { error in box.error = error; group.leave() }
+        if group.wait(timeout: .now() + PrefabTimeouts.writeSeconds) == .timedOut {        // today: unbounded
+            throw fail(.gatewayTimeout, ["error": "write_timeout"], charId: charId)
+        }
+        if let error = box.error {
+            let code = (error as NSError).code
+            throw fail(.badGateway, ["error": "write_failed", "hm_code": code, "message": error.localizedDescription], charId: charId)
+        }
+        log.logToFile("[updateAccessory] \(requestId) \(charId) → 200 ok")
+        return String(data: try JSONEncoder().encode(WriteResult(ok: true, characteristicId: charId, value: input.value)), encoding: .utf8)!
     }
 }
 
+/// Completion-handler result holder (the completion fires once, before group.leave()).
+final class ErrorBox { var error: Error? }
