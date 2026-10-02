@@ -218,3 +218,4 @@ xcuserdata/
 #
 .aider*
 *.log
+prefab/PrefabBuildInfo.plist
