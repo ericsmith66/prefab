@@ -224,18 +224,35 @@ extension Server {
 
     /// PUT /accessories/:home/id/:uuid (FR-A4) — same contract as the name route (Task A5).
     func updateAccessoryById(_ request: HBRequest) throws -> String {
-        let home = try findHome(request)
-        return try performWrite(request, accessory: try findAccessory(byId: try getRequiredParam(param: "uuid", request: request), in: home))
+        let accessory = try logWriteResolution(request) { () throws -> HMAccessory in
+            let home = try findHome(request)
+            return try findAccessory(byId: try getRequiredParam(param: "uuid", request: request), in: home)
+        }
+        return try performWrite(request, accessory: accessory)
     }
 
     /// PUT /accessories/:home/:room/:accessory (name route; the dashboard sync uses it until PRD-1-03).
     func updateAccessory(_ request: HBRequest) throws -> String {
-        let home = try findHome(request)
-        let room = try getRequiredParam(param: "room", request: request).removingPercentEncoding ?? ""
-        let name = try getRequiredParam(param: "accessory", request: request).removingPercentEncoding ?? ""
-        guard let list = accessories(in: home, roomNamed: room) else { throw PrefabJSONError.notFound("room") }
-        guard let accessory = list.first(where: { $0.name == name }) else { throw PrefabJSONError.notFound("accessory") }
+        let accessory = try logWriteResolution(request) { () throws -> HMAccessory in
+            let home = try findHome(request)
+            let room = try getRequiredParam(param: "room", request: request).removingPercentEncoding ?? ""
+            let name = try getRequiredParam(param: "accessory", request: request).removingPercentEncoding ?? ""
+            guard let list = accessories(in: home, roomNamed: room) else { throw PrefabJSONError.notFound("room") }
+            guard let accessory = list.first(where: { $0.name == name }) else { throw PrefabJSONError.notFound("accessory") }
+            return accessory
+        }
         return try performWrite(request, accessory: accessory)
+    }
+
+    /// RM-5 (FR-A3, QA PD-7): the write path's resolution failures (404 home/room/accessory) are appended to the debug
+    /// log like every other outcome — "[updateAccessory] <requestId> - → 404 not_found <what>" — then rethrown unchanged.
+    func logWriteResolution(_ request: HBRequest, _ resolve: () throws -> HMAccessory) throws -> HMAccessory {
+        do {
+            return try resolve()
+        } catch let error as PrefabJSONError {
+            HomeBase.shared.logToFile("[updateAccessory] \(request.id) - → \(error.status.code) \(error.payload["error"] ?? "") \(error.payload["what"] ?? "")")
+            throw error
+        }
     }
 
     /// FR-A3. Status codes and `error` strings are normative. Debug log (logToFile, precondition logging.enabled):
