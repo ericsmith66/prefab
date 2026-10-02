@@ -165,44 +165,55 @@ extension Server {
     }
     
     
+    /// GET /accessories/:home/:room/:accessory (name route) — full detail; reads bounded by the 12 s guard (O31).
     func getAccessory(_ request: HBRequest) throws -> String {
-        let homeName = try getRequiredParam(param: "home", request: request)
-        let roomName = try getRequiredParam(param: "room", request: request)
-        let accessoryName = try getRequiredParam(param: "accessory", request: request)
-
-        let home = homeBase.homes.first(where: {$0.name == homeName.removingPercentEncoding})
-        if (home == nil) {
-            throw HBHTTPError(.notFound)
-        }
-        let room = home?.rooms.first(where: {$0.name == roomName.removingPercentEncoding})
-        if (room == nil) {
-            throw HBHTTPError(.notFound)
-        }
-        let hkAccessory = room?.accessories.first(where: { (hmAccessory: HMAccessory) -> Bool in hmAccessory.name == accessoryName.removingPercentEncoding})
-        if (hkAccessory == nil) {
-            throw HBHTTPError(.notFound)
-        }
-        
-        let group = DispatchGroup()
-        for service in hkAccessory!.services {
-            for char in service.characteristics {
-                group.enter()
-                // Error handling for read
-                char.readValue{ (error: Error?) -> Void in group.leave() }
-            }
-        }
-        group.wait()
-
-        let accessory = Accessory(
-            home: home!.name,  room: room!.name, name: hkAccessory!.name, category: hkAccessory!.category.localizedDescription, isReachable: hkAccessory!.isReachable, supportsIdentify: hkAccessory!.supportsIdentify, isBridged: hkAccessory!.isBridged, services: hkAccessory!.services.map{ (service: HMService) -> Service in Service(uniqueIdentifier: service.uniqueIdentifier, name: service.name, typeName: getHAPServiceInfo(fromUUIDString: service.serviceType)?.name ?? "", type: service.serviceType, isPrimary: service.isPrimaryService, isUserInteractive: service.isUserInteractive, associatedType: service.associatedServiceType, characteristics: service.characteristics.map{ (char: HMCharacteristic) -> Characteristic in Characteristic(uniqueIdentifier: char.uniqueIdentifier,  description: char.localizedDescription, properties: char.properties, typeName: getHAPCharacteristicInfo(fromUUIDString: char.characteristicType)?.name ?? "", type: char.characteristicType, metadata: CharacteristicMetadata(manufacturerDescription: char.metadata?.manufacturerDescription, validValues: char.metadata?.validValues?.map{ (number: NSNumber) -> String in return number.stringValue}, minimumValue: char.metadata?.minimumValue?.stringValue, maximumValue: char.metadata?.maximumValue?.stringValue, stepValue: char.metadata?.stepValue?.stringValue, maxLength: char.metadata?.maxLength?.stringValue, format: char.metadata?.format, units: char.metadata?.units), value: "\(char.value ?? "")" )}) }, firmwareVersion: hkAccessory!.firmwareVersion, manufacturer: hkAccessory!.manufacturer, model: hkAccessory!.model )
-        
-        let jsonEncoder = JSONEncoder()
-        let jsonData = try jsonEncoder.encode(accessory)
-        let json = String(data: jsonData, encoding: String.Encoding.utf8)
-        
-        return json!
+        let home = try findHome(request)
+        let room = try getRequiredParam(param: "room", request: request).removingPercentEncoding ?? ""
+        let name = try getRequiredParam(param: "accessory", request: request).removingPercentEncoding ?? ""
+        guard let list = accessories(in: home, roomNamed: room) else { throw PrefabJSONError.notFound("room") }
+        guard let accessory = list.first(where: { $0.name == name }) else { throw PrefabJSONError.notFound("accessory") }
+        try readAll(accessory)
+        return String(data: try JSONEncoder().encode(detailJSON(accessory, in: home)), encoding: .utf8)!
     }
-    
+
+    /// readValue on every characteristic (as today), bounded by the 12 s full-detail guard → 504 read_timeout (O31).
+    func readAll(_ accessory: HMAccessory) throws {
+        let group = DispatchGroup()
+        for service in accessory.services { for char in service.characteristics { group.enter(); char.readValue { _ in group.leave() } } }
+        if group.wait(timeout: .now() + PrefabTimeouts.readAllSeconds) == .timedOut {
+            throw PrefabJSONError(status: .gatewayTimeout, payload: ["error": "read_timeout"])
+        }
+    }
+
+    /// Exactly one readValue, bounded by the 5 s single-characteristic guard (S2).
+    func readOne(_ accessory: HMAccessory, characteristicId: String) throws -> CharacteristicRead {
+        guard let char = accessory.services.flatMap({ $0.characteristics })
+                .first(where: { $0.uniqueIdentifier.uuidString.caseInsensitiveCompare(characteristicId) == .orderedSame }) else {
+            throw PrefabJSONError.notFound("characteristic")
+        }
+        HomeBase.shared.logToFile("[readOne] \(char.uniqueIdentifier.uuidString) readValue")
+        let group = DispatchGroup(); group.enter()
+        char.readValue { _ in group.leave() }
+        if group.wait(timeout: .now() + PrefabTimeouts.readOneSeconds) == .timedOut {
+            throw PrefabJSONError(status: .gatewayTimeout, payload: ["error": "read_timeout"])
+        }
+        return CharacteristicRead(uniqueIdentifier: accessory.uniqueIdentifier.uuidString, isReachable: accessory.isReachable,
+            characteristic: CharacteristicValue(uniqueIdentifier: char.uniqueIdentifier.uuidString, type: char.characteristicType,
+                typeName: getHAPCharacteristicInfo(fromUUIDString: char.characteristicType)?.name ?? "",
+                value: char.value.map { "\($0)" }, format: char.metadata?.format))
+    }
+
+    /// GET /accessories/:home/id/:uuid[?characteristic=<uuid>] (FR-A4)
+    func getAccessoryById(_ request: HBRequest) throws -> String {
+        let home = try findHome(request)
+        let accessory = try findAccessory(byId: try getRequiredParam(param: "uuid", request: request), in: home)
+        if let charId = request.uri.queryParameters.get("characteristic")?.removingPercentEncoding {
+            return String(data: try JSONEncoder().encode(try readOne(accessory, characteristicId: charId)), encoding: .utf8)!
+        }
+        try readAll(accessory)
+        return String(data: try JSONEncoder().encode(detailJSON(accessory, in: home)), encoding: .utf8)!
+    }
+
     func updateAccessory(_ request: HBRequest) throws -> String {
         let logger = Logger(subsystem: "app.prefab", category: "updateAccessory")
         logger.debug("updateAccessory called")
