@@ -231,6 +231,13 @@ enum PrefabEnvironment {
     static let configPath: String = absolutePath("PREFAB_CONFIG_PATH", default: defaultConfigPath)
     static let logPath: String = absolutePath("PREFAB_LOG_PATH", default: defaultLogPath)
 
+    /// RM-2 (QA M1): parse every override up front. Called as the FIRST line of Server.init — before HomeBase.shared
+    /// reads the config, unlinks/recreates the debug log and creates HMHomeManager — so a bad value exits 2
+    /// (`prefab: invalid <NAME>`) before any file or HomeKit is touched.
+    static func validateAtLaunch() {
+        _ = (port, configPath, logPath)
+    }
+
     #if DEBUG
     static let forceUnauthorized: Bool = ProcessInfo.processInfo.environment["PREFAB_FORCE_UNAUTHORIZED"] == "1"
     static let fault: String? = {
