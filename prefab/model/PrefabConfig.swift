@@ -233,16 +233,25 @@ enum PrefabEnvironment {
 
     /// RM-2 (QA M1): parse every override up front. Called as the FIRST line of Server.init — before HomeBase.shared
     /// reads the config, unlinks/recreates the debug log and creates HMHomeManager — so a bad value exits 2
-    /// (`prefab: invalid <NAME>`) before any file or HomeKit is touched.
+    /// (`prefab: invalid <NAME>`) before any file or HomeKit is touched. RM-3: the debug switches are checked here
+    /// too (in release builds they are constants and read no environment).
     static func validateAtLaunch() {
-        _ = (port, configPath, logPath)
+        _ = (port, configPath, logPath, forceUnauthorized, fault)
     }
 
     #if DEBUG
-    static let forceUnauthorized: Bool = ProcessInfo.processInfo.environment["PREFAB_FORCE_UNAUTHORIZED"] == "1"
+    // RM-3 (QA m1): the debug switches fail closed. PREFAB_FORCE_UNAUTHORIZED set to anything but "1", or a non-empty
+    // PREFAB_FAULT outside {write_failed, write_timeout}, exits 2 at launch (validateAtLaunch), so a mistyped switch
+    // can never fall through to an authorized instance or a real HomeKit write.
+    static let forceUnauthorized: Bool = {
+        guard let raw = ProcessInfo.processInfo.environment["PREFAB_FORCE_UNAUTHORIZED"] else { return false }
+        guard raw == "1" else { die("PREFAB_FORCE_UNAUTHORIZED") }
+        return true
+    }()
     static let fault: String? = {
-        let v = ProcessInfo.processInfo.environment["PREFAB_FAULT"]
-        return (v == "write_failed" || v == "write_timeout") ? v : nil
+        guard let raw = ProcessInfo.processInfo.environment["PREFAB_FAULT"], !raw.isEmpty else { return nil }
+        guard raw == "write_failed" || raw == "write_timeout" else { die("PREFAB_FAULT") }
+        return raw
     }()
     #else
     static let forceUnauthorized: Bool = false

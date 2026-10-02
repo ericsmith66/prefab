@@ -26,7 +26,7 @@ class Server  {
     var homeBase: HomeBase
     
     init() {
-        PrefabEnvironment.validateAtLaunch()            // RM-2: every override checked before HomeBase.shared (config, debug log, HMHomeManager)
+        PrefabEnvironment.validateAtLaunch()            // RM-2/RM-3: every override and debug switch checked before HomeBase.shared (config, debug log, HMHomeManager)
         self.homeBase = HomeBase.shared
         // Start the server on a background thread with a run loop (P12: no mDNS advertising)
         let serverThread = Thread(target: self, selector: #selector(startServer), object: nil)
