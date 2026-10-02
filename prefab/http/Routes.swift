@@ -53,3 +53,18 @@ struct PrefabJSONError: Error, HBHTTPResponseError {
     }
     static func notFound(_ what: String) -> PrefabJSONError { .init(status: .notFound, payload: ["error": "not_found", "what": what]) }
 }
+
+/// RM-1 (FR-A4 shape; QA m3): `value` and `format` are keys of the single-characteristic read's `characteristic`
+/// object — encoded as JSON null when HomeKit has none, instead of being omitted.
+extension CharacteristicValue {
+    private enum EncodingKeys: String, CodingKey { case uniqueIdentifier, type, typeName, value, format }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: EncodingKeys.self)
+        try c.encode(uniqueIdentifier, forKey: .uniqueIdentifier)
+        try c.encode(type, forKey: .type)
+        try c.encode(typeName, forKey: .typeName)
+        if let value { try c.encode(value, forKey: .value) } else { try c.encodeNil(forKey: .value) }
+        if let format { try c.encode(format, forKey: .format) } else { try c.encodeNil(forKey: .format) }
+    }
+}

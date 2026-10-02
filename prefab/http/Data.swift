@@ -35,6 +35,32 @@ struct Accessory: Encodable, Decodable {
     var firmwareVersion: String?
     var manufacturer: String?
     var model: String?
+
+    /// RM-1 (FR-A5, AC-01-07/08; QA PD-6): `bridgedBy` is part of the normative accessory shape, so a non-bridged
+    /// accessory carries `"bridgedBy": null` instead of omitting the key. Every other optional keeps the synthesized
+    /// behaviour (omitted when nil); decoding stays synthesized (`null` and a missing key both decode to nil).
+    private enum EncodingKeys: String, CodingKey {
+        case home, room, name, uniqueIdentifier, isDefaultRoom, bridgedBy, category, isReachable, supportsIdentify, isBridged,
+             services, firmwareVersion, manufacturer, model
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: EncodingKeys.self)
+        try c.encode(home, forKey: .home)
+        try c.encode(room, forKey: .room)
+        try c.encode(name, forKey: .name)
+        try c.encodeIfPresent(uniqueIdentifier, forKey: .uniqueIdentifier)
+        try c.encodeIfPresent(isDefaultRoom, forKey: .isDefaultRoom)
+        if let bridgedBy { try c.encode(bridgedBy, forKey: .bridgedBy) } else { try c.encodeNil(forKey: .bridgedBy) }
+        try c.encodeIfPresent(category, forKey: .category)
+        try c.encodeIfPresent(isReachable, forKey: .isReachable)
+        try c.encodeIfPresent(supportsIdentify, forKey: .supportsIdentify)
+        try c.encodeIfPresent(isBridged, forKey: .isBridged)
+        try c.encodeIfPresent(services, forKey: .services)
+        try c.encodeIfPresent(firmwareVersion, forKey: .firmwareVersion)
+        try c.encodeIfPresent(manufacturer, forKey: .manufacturer)
+        try c.encodeIfPresent(model, forKey: .model)
+    }
 }
 
 struct Service: Encodable, Decodable {
