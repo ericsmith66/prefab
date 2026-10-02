@@ -192,10 +192,18 @@ extension Server {
             throw PrefabJSONError.notFound("characteristic")
         }
         HomeBase.shared.logToFile("[readOne] \(char.uniqueIdentifier.uuidString) readValue")
+        let box = ErrorBox()
         let group = DispatchGroup(); group.enter()
-        char.readValue { _ in group.leave() }
+        char.readValue { error in box.error = error; group.leave() }
         if group.wait(timeout: .now() + PrefabTimeouts.readOneSeconds) == .timedOut {
             throw PrefabJSONError(status: .gatewayTimeout, payload: ["error": "read_timeout"])
+        }
+        // RM-4 (QA M3): a failed device read is a typed 502, never HomeKit's cached value presented as a live read.
+        // Rails (PR 1a) maps any non-2xx read-back to verified: nil, reason readback_failed.
+        if let error = box.error {
+            let code = (error as NSError).code
+            HomeBase.shared.logToFile("[readOne] \(char.uniqueIdentifier.uuidString) → 502 read_failed \(code)")
+            throw PrefabJSONError(status: .badGateway, payload: ["error": "read_failed", "hm_code": code, "message": error.localizedDescription])
         }
         return CharacteristicRead(uniqueIdentifier: accessory.uniqueIdentifier.uuidString, isReachable: accessory.isReachable,
             characteristic: CharacteristicValue(uniqueIdentifier: char.uniqueIdentifier.uuidString, type: char.characteristicType,
