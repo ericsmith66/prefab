@@ -323,6 +323,20 @@ re-apply the python above, then `prefab_stop`, bootstrap, `prefab_start_check`.
 - **Whole window:** all three, then `/homes` 200 and feed age `< 120` confirmed; the point of failure goes into the task
   log. The re-key (steps 21–22) runs only after a window that ended green.
 
+## 13a. Polling must stay OFF (production config) — 2026-10-02 incident
+
+Production `~/Library/Application Support/Prefab/config.json` keeps **`"polling": {"enabled": false, …}`**.
+
+- **Why:** when every HomeKit notification subscription succeeds (the normal case: "277 accessories, 277 delegates"),
+  `HomeBase.homeManagerDidUpdateHomes` falls back to `startPollingAllDelegateAccessories()` — it re-reads EVERY readable
+  characteristic of ALL accessories every `intervalSeconds` (15). On 2026-10-02 that load (~800 reads per tick on one
+  bridge) swamped the Lutron RA3 processor's own HomeKit bridge: its reads timed out and the Lutron lights showed
+  "No Response" in Apple Home. Switching polling off (backup `config.json.bak-20261002-203636-polling`) fixed it at once.
+- **Check after any restart:** the debug log's startup lines must read `Polling: 0 accessories, enabled: false`.
+- **Never** restore a config backup from before 2026-10-02 without flipping `polling.enabled` back to `false`.
+- **Durable fix (not yet built):** poll only characteristics whose subscription FAILED, rate-limited per bridge; never
+  poll-all. Until it lands, the config flag is the only guard — this build has the same poll-all code.
+
 ## 14. Interim dependency: display-awake
 
 `.253` is headless; when its (virtual) display sleeps, Prefab's HomeKit layer freezes while its HTTP server keeps
