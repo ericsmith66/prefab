@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 /// Configuration for Prefab HomeKit monitoring and callbacks
 struct PrefabConfig: Codable {
@@ -21,7 +22,8 @@ struct PrefabConfig: Codable {
     /// Logging configuration
     var logging: LoggingConfig
     
-    /// Default configuration
+    /// Default configuration — written only for a MISSING config file (loadOrCreate). S″ (plan R7-7): polling is off
+    /// by default, so no default can ever poll; an existing file that fails to decode is never replaced by this.
     static let `default` = PrefabConfig(
         webhook: WebhookConfig(
             url: "http://localhost:4567/event",
@@ -30,7 +32,7 @@ struct PrefabConfig: Codable {
         ),
         polling: PollingConfig(
             intervalSeconds: 5.0,
-            enabled: true,
+            enabled: false,
             reportIntervalSeconds: 60.0
         ),
         deviceRegistry: DeviceRegistry(
@@ -72,7 +74,14 @@ struct PrefabConfig: Codable {
         
         /// How often to generate accessory reports (in seconds)
         var reportIntervalSeconds: TimeInterval
-        
+
+        /// S″ (plan R7-7 item 5): at most this many poll reads a minute per bridge. Optional, so an S′ config decodes
+        /// unchanged; missing → 6. The scheduler clamps it to 1…30 (PollingLimit, one log line when clamped).
+        var maxReadsPerMinutePerBridge: Int? = nil
+
+        static let defaultMaxReadsPerMinutePerBridge = 6
+        var maxReadsPerMinutePerBridgeOrDefault: Int { maxReadsPerMinutePerBridge ?? Self.defaultMaxReadsPerMinutePerBridge }
+
         /// Computed ticks per report (for timer-based reporting)
         var ticksPerReport: Int {
             return Int(reportIntervalSeconds / intervalSeconds)
@@ -115,34 +124,66 @@ struct PrefabConfig: Codable {
     }
 }
 
-/// Configuration manager for loading/saving Prefab configuration
+/// Why an EXISTING config file was refused (S″, plan R7-7 / R8-6). Never thrown for a missing file.
+enum PrefabConfigLoadError: Error, CustomStringConvertible {
+    case unreadable(path: String, reason: String)
+    case undecodable(path: String, reason: String)
+
+    var description: String {
+        switch self {
+        case .unreadable(let path, let reason): return "invalid PREFAB_CONFIG_PATH: \(path) cannot be read (\(reason))"
+        case .undecodable(let path, let reason): return "invalid PREFAB_CONFIG_PATH: \(path) does not decode (\(reason))"
+        }
+    }
+}
+
+extension PrefabConfig {
+    /// The ONE loader (S″, plan R8-6). Pure: no globals, no logging.
+    /// - missing file → writes `.default` (polling off) for the user to edit and returns it; a failed write is ignored,
+    ///   as S′'s `saveConfig()` ignored it;
+    /// - existing file that decodes → returns it; the file is not touched;
+    /// - existing file that cannot be read or decoded → throws `PrefabConfigLoadError` and writes NOTHING. (S′ replaced
+    ///   such a file with `.default`, whose polling was on — one schema slip would have restarted poll-all.)
+    static func loadOrCreate(at url: URL) throws -> PrefabConfig {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else {
+            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]          // as S′'s saveConfig()
+            if let data = try? encoder.encode(PrefabConfig.default) { try? data.write(to: url) }
+            return .default
+        }
+        let data: Data
+        do { data = try Data(contentsOf: url) } catch {
+            throw PrefabConfigLoadError.unreadable(path: url.path, reason: error.localizedDescription)
+        }
+        do { return try JSONDecoder().decode(PrefabConfig.self, from: data) } catch {
+            throw PrefabConfigLoadError.undecodable(path: url.path, reason: String(describing: error))
+        }
+    }
+}
+
+/// Configuration manager for loading Prefab configuration (it never writes over an existing file — S″, R8-6)
 class PrefabConfigManager {
     /// Singleton instance
     static let shared = PrefabConfigManager()
-    
+
     /// Current configuration
     private(set) var config: PrefabConfig
-    
+
     /// Cached device set for fast lookup (updated when config changes)
     private var deviceSet: Set<String> = []
-    
+
     /// Configuration file location in Application Support
     private let configFileURL: URL
-    
+
     private init() {
         // Set up config file location (FR-A8: PREFAB_CONFIG_PATH, default ~/Library/Application Support/Prefab/config.json)
         self.configFileURL = URL(fileURLWithPath: PrefabEnvironment.configPath)
-        try? FileManager.default.createDirectory(at: configFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        
-        // Load or create default config
-        if let loadedConfig = Self.loadConfig(from: configFileURL) {
-            self.config = loadedConfig
-        } else {
-            self.config = .default
-            // Save default config for user to edit
-            self.saveConfig()
-        }
-        
+        // S″ (R8-6): the same loader as validateAtLaunch() — missing → the default (polling off) is written; existing →
+        // decoded; undecodable → the unified-log fault line and exit 2, never a save over the file.
+        do { self.config = try PrefabConfig.loadOrCreate(at: configFileURL) } catch { PrefabEnvironment.invalidConfig(error) }
+
         // Cache device set for fast lookup
         self.deviceSet = Set(config.deviceRegistry.devices)
     }
@@ -163,35 +204,17 @@ class PrefabConfigManager {
         }
     }
     
-    /// Save current configuration to file
-    @discardableResult
-    func saveConfig() -> Bool {
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(config)
-            try data.write(to: configFileURL)
-            return true
-        } catch {
-            return false
-        }
-    }
-    
-    /// Reload configuration from file
+    // S″ (R8-6): saveConfig() and updateConfig() are removed — updateConfig had no caller (measured 2026-10-08), and the
+    // only write left is loadOrCreate's missing-file branch.
+
+    /// Reload configuration from file (never writes)
     func reloadConfig() {
         if let loadedConfig = Self.loadConfig(from: configFileURL) {
             self.config = loadedConfig
             self.deviceSet = Set(config.deviceRegistry.devices)
         }
     }
-    
-    /// Update configuration programmatically
-    func updateConfig(_ update: (inout PrefabConfig) -> Void) {
-        update(&config)
-        self.deviceSet = Set(config.deviceRegistry.devices)
-        saveConfig()
-    }
-    
+
     /// Check if an accessory should be polled based on registry settings
     func shouldPollAccessory(uuid: String, name: String) -> Bool {
         switch config.deviceRegistry.mode {
@@ -237,6 +260,18 @@ enum PrefabEnvironment {
     /// too (in release builds they are constants and read no environment).
     static func validateAtLaunch() {
         _ = (port, configPath, logPath, forceUnauthorized, fault)
+        // S″ (plan R7-7 / R8-6): an EXISTING config that cannot be decoded exits 2 here, before HomeKit or the debug log
+        // is touched, and is never overwritten; a missing one gets the default (polling off), as before.
+        do { _ = try PrefabConfig.loadOrCreate(at: URL(fileURLWithPath: configPath)) } catch { invalidConfig(error) }
+    }
+
+    /// R8-6: under the LaunchAgent (KeepAlive + `open -W`) Prefab's stderr is never seen and an exit 2 relaunches about
+    /// every 10 s, so the reason goes to the unified log first:
+    /// `log show --last 5m --style compact --predicate 'process == "Prefab"' | grep -m3 'prefab: invalid'`.
+    static func invalidConfig(_ error: Error) -> Never {
+        let reason = String(describing: error)
+        Logger(subsystem: "app.prefab", category: "launch").fault("prefab: invalid PREFAB_CONFIG_PATH (\(reason, privacy: .public))")
+        die("PREFAB_CONFIG_PATH")
     }
 
     #if DEBUG

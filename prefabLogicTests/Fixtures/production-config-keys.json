@@ -1,0 +1,24 @@
+{
+  "deviceRegistry" : {
+    "devices" : [
+
+    ],
+    "mode" : "all"
+  },
+  "logging" : {
+    "enabled" : true,
+    "logAllCallbacks" : false,
+    "logOnlyChanges" : true,
+    "maxCallbacksPerSecond" : 10
+  },
+  "polling" : {
+    "enabled" : false,
+    "intervalSeconds" : 15.5,
+    "reportIntervalSeconds" : 60.5
+  },
+  "webhook" : {
+    "authToken" : "dummy-not-a-real-token",
+    "enabled" : true,
+    "url" : "http://127.0.0.1:3002/api/homekit/events"
+  }
+}

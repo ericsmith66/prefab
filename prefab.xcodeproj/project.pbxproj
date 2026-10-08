@@ -53,6 +53,8 @@
 		5E2000000000000000000016 /* DetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000015 /* DetailTests.swift */; };
 		5E2000000000000000000018 /* RawHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000017 /* RawHTTPClient.swift */; };
 		5E200000000000000000001A /* HTTPTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000019 /* HTTPTransportTests.swift */; };
+		5E200000000000000000001C /* ConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E200000000000000000001B /* ConfigTests.swift */; };
+		5E200000000000000000001F /* production-config-keys.json in Resources */ = {isa = PBXBuildFile; fileRef = 5E200000000000000000001E /* production-config-keys.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -141,6 +143,8 @@
 		5E2000000000000000000009 /* prefabLogicTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = prefabLogicTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E2000000000000000000017 /* RawHTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawHTTPClient.swift; sourceTree = "<group>"; };
 		5E2000000000000000000019 /* HTTPTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPTransportTests.swift; sourceTree = "<group>"; };
+		5E200000000000000000001B /* ConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigTests.swift; sourceTree = "<group>"; };
+		5E200000000000000000001E /* production-config-keys.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "production-config-keys.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -332,11 +336,21 @@
 		5E2000000000000000000008 /* prefabLogicTests */ = {
 			isa = PBXGroup;
 			children = (
+				5E200000000000000000001D /* Fixtures */,
+				5E200000000000000000001B /* ConfigTests.swift */,
 				5E2000000000000000000019 /* HTTPTransportTests.swift */,
 				5E2000000000000000000017 /* RawHTTPClient.swift */,
 				5E2000000000000000000015 /* DetailTests.swift */,
 			);
 			path = prefabLogicTests;
+			sourceTree = "<group>";
+		};
+		5E200000000000000000001D /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				5E200000000000000000001E /* production-config-keys.json */,
+			);
+			path = Fixtures;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -549,6 +563,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E200000000000000000001F /* production-config-keys.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -615,6 +630,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E200000000000000000001C /* ConfigTests.swift in Sources */,
 				5E200000000000000000001A /* HTTPTransportTests.swift in Sources */,
 				5E2000000000000000000018 /* RawHTTPClient.swift in Sources */,
 				5E2000000000000000000004 /* PrefabHTTPCore.swift in Sources */,
