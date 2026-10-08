@@ -26,7 +26,8 @@ clone is still `~/tmp/prefab-prd01` (detached at `S′`); at window prep it is m
   `open -W` waiter — the app itself has its own pid and process group (PA-1), see `prefab_stop` in § 10.
 - **HTTP:** `127.0.0.1:8080` only (P12); no Bonjour. Routes: `/version` (never behind the HomeKit auth check),
   `/homes`, `/rooms/:home[/:room]`, `/accessories/:home[/summary|/:room[/:accessory]|/id/:uuid[?characteristic=]]`
-  (from S″ the two full-detail routes also take `?read=cache|live`, § 18),
+  (from S″ the two full-detail routes also take `?read=cache|live`, § 18), and from S″ `GET /triggers/:home` and
+  `PUT /triggers/:home/:uuid/enabled` (PRD-1-07 Track A, behind the write flag — § 19),
   `/scenes/:home[/:scene[/execute]]`, `/groups/:home[/:group]`.
 - **Every client uses keep-alive HTTP/1.1 (F-1, found 2026-10-03).** Prefab `S′` sends **no response** to a request
   that carries `Connection: close`, or to any HTTP/1.0 request: the connection just closes (curl exit 52, "Empty
@@ -738,3 +739,34 @@ stubbed. No process is started, nothing is named `Prefab`, nothing is created un
 symlink named `Prefab`; nothing under a directory whose name ends in `.app`, and never the production bundle layout;
 no `open`, LaunchServices or `lsregister` for a stub. Instance checks are tested with a stubbed `pgrep`. A test that
 can only work with the real `Prefab.app/Contents/MacOS/Prefab` layout is not run; it goes to QA as a finding.
+
+## 19. Trigger routes and the write flag (PRD-1-07 Track A; in Prefab S″)
+
+**The operator text of record is skynet-mcp `docs/OPERATIONS.md`, section "Prefab trigger routes (PRD-1-07 Track A;
+shipped in Prefab S″)"** (branch `epic-1/prd-07-scene-judgment-scheduler`): the routes, their answers, when the flag may
+exist, who calls it, the log lines and the accepted gap. In short:
+
+- `GET /triggers/<home>` — read-only; every HomeKit automation from memory (no device reads), with `write_enabled`.
+- `PUT /triggers/<home>/<trigger uuid>/enabled` with `{"enabled": true}` or `{"enabled": false}` — `HMTrigger.enable`,
+  4 s guard (504 = the outcome is unknown: GET to see). Only while the flag exists; without it
+  `403 {"error":"triggers_write_disabled"}` and nothing is sent to HomeKit. No other trigger mutation exists.
+- `POST /scenes/<home>/<uuid>/execute` on an action set that belongs ONLY to an automation (a trigger-owned set) needs the
+  same flag; a set HomeKit also lists among the home's scenes does not (it was executable before S″).
+- **The flag:** `/Users/ericsmith66/Library/Application Support/Prefab/triggers-write-enabled` — a regular file (not a
+  symlink), owner `ericsmith66`, mode `600`; checked on every request, so no restart. **Only with Eric's go:** the FR-07-A4
+  proof window and PRD-1-08's drills (removed after each), and permanently from just before PRD-1-08's `apply[all]`.
+
+```bash
+F="$HOME/Library/Application Support/Prefab/triggers-write-enabled"
+( umask 077; printf '%s, %s, Eric present\n' "<why>" "$(date +%F)" > "$F" ); ls -l "$F"     # create → -rw-------  ericsmith66
+rm "$F"                                                                                         # remove
+curl -s 127.0.0.1:8080/triggers/Waverly | python3 -c 'import json,sys; print(json.load(sys.stdin)["write_enabled"])'   # check
+```
+
+- **Log lines** (`~/Documents/homebase_debug.log`): one per PUT,
+  `[triggers] <request> PUT <uuid> enabled=<true|false|?> → <status> <ok|error>[ (<reason>)]` — the reason (absent,
+  symlink, not_regular_file, owner, mode) only on the flag's 403; `[triggers] <request> <uuid> Attempting enable=<b>`
+  right before a real HomeKit call; and one per execute, `[executeScene] <request> <uuid> → <status> <ok|error>`.
+- **After every toggle or execute:** the native-callback rate for the next hour (§ 10a; `s2_rate_check` in § 18.1).
+- The S″ window's read-only proof is W11 and the refused PUT W12; the toggle proof (T0–T9) needs Eric's separate go
+  (PRD-1-01 plan § 15.18 R7-15 with § 15.19 R8-8).
