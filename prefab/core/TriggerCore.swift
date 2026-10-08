@@ -653,3 +653,51 @@ enum PredicateWalker {
         }
     }
 }
+
+// MARK: - Executing an action set (plan § 4's Routes+Scenes row; amendments A-3, A-6)
+
+enum ActionSetLocation: Equatable {
+    /// In home.actionSets (a scene, or a set HomeKit also lists among the home's scenes).
+    case home
+    /// Found only through a trigger's action sets (the hidden "trigger-owned" set of an automation).
+    case triggerOnly
+    case notFound
+}
+
+enum ExecuteDecision: Equatable {
+    case execute
+    /// 403 `{"error":"triggers_write_disabled"}`, no HomeKit call.
+    case refuse
+    /// 404 `{"error":"not_found","what":"scene"}`.
+    case notFound
+}
+
+enum ActionSetExecution {
+    /// home.actionSets first, then every trigger's actionSets.
+    static func locate(_ id: UUID, homeSets: [UUID], triggerSets: [UUID]) -> ActionSetLocation {
+        if homeSets.contains(id) { return .home }
+        if triggerSets.contains(id) { return .triggerOnly }
+        return .notFound
+    }
+
+    /// A home set executes as before (the flag is irrelevant). A set found ONLY through a trigger executes only while the
+    /// write flag is valid. A set HomeKit also lists among the home's scenes is `.home`: executable before S″, and still.
+    static func executeDecision(location: ActionSetLocation, flagEnabled: Bool) -> ExecuteDecision {
+        switch location {
+        case .home: return .execute
+        case .triggerOnly: return flagEnabled ? .execute : .refuse
+        case .notFound: return .notFound
+        }
+    }
+
+    /// GET /scenes/:home/:scene is read-only: a trigger-only set reads without the flag.
+    static func readable(_ location: ActionSetLocation) -> Bool { location != .notFound }
+
+    /// The same 403 as the trigger PUT.
+    static let refusal = PrefabJSONError(status: .forbidden, payload: ["error": "triggers_write_disabled"])
+
+    /// One line per execute: `[executeScene] <requestId> <uuid> → <status> <ok|error>`.
+    static func logLine(requestId: String, uuid: String, status: Int, outcome: String) -> String {
+        "[executeScene] \(requestId) \(uuid) → \(status) \(outcome)"
+    }
+}
