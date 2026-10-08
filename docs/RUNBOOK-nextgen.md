@@ -25,28 +25,35 @@ clone is still `~/tmp/prefab-prd01` (detached at `S′`); at window prep it is m
   `/usr/bin/open -W ~/Applications/Server/Prefab.app` (Aqua session, KeepAlive). `launchctl bootout` stops only the
   `open -W` waiter — the app itself has its own pid and process group (PA-1), see `prefab_stop` in § 10.
 - **HTTP:** `127.0.0.1:8080` only (P12); no Bonjour. Routes: `/version` (never behind the HomeKit auth check),
-  `/homes`, `/rooms/:home[/:room]`, `/accessories/:home[/summary|/:room[/:accessory]|/id/:uuid[?characteristic=]]`,
+  `/homes`, `/rooms/:home[/:room]`, `/accessories/:home[/summary|/:room[/:accessory]|/id/:uuid[?characteristic=]]`
+  (from S″ the two full-detail routes also take `?read=cache|live`, § 18),
   `/scenes/:home[/:scene[/execute]]`, `/groups/:home[/:group]`.
 - **Every client uses keep-alive HTTP/1.1 (F-1, found 2026-10-03).** Prefab `S′` sends **no response** to a request
   that carries `Connection: close`, or to any HTTP/1.0 request: the connection just closes (curl exit 52, "Empty
   reply from server" — measured 2026-10-08 on `/version`). Use plain `curl` (HTTP/1.1 with keep-alive by default;
   never `-0`, never `-H 'Connection: close'`) or Python `http.client`. Never Python `urllib.request`: it always sends
   `Connection: close` (that is what broke step 20b's first runs). Rails' `PrefabClient` uses curl and is unaffected.
-  The cause is not established; the fix is planned in Prefab `S″` (plan § 15.18 R7-6).
+  The cause (found hostless on 2026-10-08, plan R8-5 branch 1): on Network.framework the server's close right after
+  the response write loses the response. Prefab `S″` serves HTTP on BSD sockets instead (§ 18). Keep this rule until
+  the S″ window's W8 (`f1_check`) shows `200 rc=0` three times on production.
 - **Config:** `~/Library/Application Support/Prefab/config.json` (mode 600 once it holds `webhook.authToken`).
   **Debug log:** `~/Documents/homebase_debug.log` (written only when `logging.enabled` is true; recreated at every
   start). Overrides, honoured by every build and reported by `/version`: `PREFAB_PORT` (1024–65535),
   `PREFAB_CONFIG_PATH`, `PREFAB_LOG_PATH` (absolute paths); a bad value exits 2 with `prefab: invalid <NAME>` on stderr.
   All of them are validated together on the first line of `Server.init`, before the config is read, the debug log is
-  recreated or HomeKit is touched (QA remediation RM-2). Debug builds only: `PREFAB_FORCE_UNAUTHORIZED=1`,
-  `PREFAB_FAULT=write_failed|write_timeout`; any other `PREFAB_FORCE_UNAUTHORIZED` value, or any other non-empty
-  `PREFAB_FAULT`, exits 2 at launch (`prefab: invalid PREFAB_FORCE_UNAUTHORIZED` / `… PREFAB_FAULT`, RM-3) — a mistyped
-  switch never falls through to a real write. Release builds compile both switches out.
+  recreated or HomeKit is touched (QA remediation RM-2); from S″ that check also decodes an existing `config.json` and
+  exits 2 (`prefab: invalid PREFAB_CONFIG_PATH`) without ever overwriting it (§ 18). Debug builds only:
+  `PREFAB_FORCE_UNAUTHORIZED=1`, `PREFAB_FAULT=write_failed|write_timeout`; a set (even empty)
+  `PREFAB_FORCE_UNAUTHORIZED` other than `1`, or a non-empty `PREFAB_FAULT` outside those two, exits 2 at launch
+  (`prefab: invalid PREFAB_FORCE_UNAUTHORIZED` / `… PREFAB_FAULT`, RM-3); an empty `PREFAB_FAULT` is off — a mistyped
+  switch never falls through to a real write. Release builds ignore both (compiled out). From S″ a Debug 403 caused by
+  the switch adds `"cause": "PREFAB_FORCE_UNAUTHORIZED"`; every other 403 keeps its bytes.
 - **Timeouts (Prefab side of the ladder):** write 4 s → 504 `write_timeout`; scene 25 s → 504 `scene_timeout`;
   full-detail read 12 s → 504 `read_timeout`; single-characteristic read 5 s → 504 `read_timeout`.
   `/version.timeouts` reports them. A single-characteristic read whose HomeKit read fails answers 502
   `{"error":"read_failed","hm_code":…,"message":…}` (RM-4) — never the cached value; the full-detail read still
-  returns HomeKit's cached values when individual reads fail.
+  returns HomeKit's cached values when individual reads fail. From S″ a full-detail read is HomeKit's cache by default
+  (no device reads) and says so (`"values":"cache"`); `?read=live` reads first (§ 18).
 - **Accessory JSON:** every item carries `uniqueIdentifier`, `room`, `isDefaultRoom` and `bridgedBy` — `null` when the
   accessory is not bridged (RM-1); the single-characteristic read always carries `value` and `format` (`null` when
   HomeKit has none).
@@ -442,6 +449,20 @@ re-apply the python above, then `prefab_stop`, bootstrap, `prefab_start_check`.
 - **Config:** `cp -p "…/config.json.bak-<date>" "…/config.json" && chmod 600 "…/config.json"`.
 - **Whole window:** all three, then `/homes` 200 and feed age `< 120` confirmed; the point of failure goes into the task
   log. The re-key (steps 21–22) runs only after a window that ended green.
+- **S″ → S′** (the S″ window's whole-window rollback — plan § 15.18 R7-15 as amended by § 15.19 R8-8; any time after
+  W4; each line with Eric's yes; § 18.1's preamble first):
+  ```bash
+  prefab_stop
+  rm -rf ~/Applications/Server/Prefab.app && mv ~/Applications/Server/Prefab.app.prev-s1-<date> ~/Applications/Server/Prefab.app
+  [ "$(md5 -q "$CFG")" = "<W3 md5>" ] || cp -p "$CFG.bak-<date>-s2" "$CFG"        # S″ never writes the config: restore only if it changed
+  rm -f "$FLAG"
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ericsmith66.prefab.plist; prefab_start_check      # → /version git_sha b2ca6d3…
+  s2_identity b2ca6d35801107019489eb0d4d4d94018eee3af8 876f1e2f3b3c1dc098af276ed61dd0668927fbcb 7fd0c015becce5f4e050b9fd884ad511452d20b2f9083e700c189d0ab84fe3e4
+  grep -a -m1 'Polling: 0 accessories, enabled: false' "$DLOG"                     # S′'s line
+  s2_rate_mark                                                                     # then s2_rate_check after ≥ 55 min
+  ```
+  If the trigger proof's T1 ran, Eric disables `skynet test automation` in the Home app (S4). Rails PR 1e stays (it
+  works with S′: S′ ignores `?read=cache`). A rollback resets the O27 reference: S′'s line applies until the next S″ start.
 
 ## 13a. Polling must stay OFF (production config) — 2026-10-02 incident
 
@@ -456,8 +477,10 @@ Production `~/Library/Application Support/Prefab/config.json` keeps **`"polling"
   (until Prefab `S″`; from `S″` on the line is `Polling: mode=failed-only enabled=false …`, plan § 15.18 R7-7), **and**
   the native-callback rate must pass § 10a.
 - **Never** restore a config backup from before 2026-10-02 without flipping `polling.enabled` back to `false`.
-- **Durable fix (not yet built):** poll only characteristics whose subscription FAILED, rate-limited per bridge; never
-  poll-all. Until it lands, the config flag is the only guard — this build has the same poll-all code.
+- **Durable fix: built in Prefab S″ (§ 18).** Only characteristics whose subscription FAILED are polled, at most
+  `polling.maxReadsPerMinutePerBridge` (default 6) reads a minute per bridge with one read in flight per bridge;
+  poll-all is deleted, and an undecodable config can no longer fall back to a polling default. Until S″ runs on `.253`,
+  S′'s poll-all code is still there and this flag is the only guard. After S″ the flag stays off (Eric's call).
 
 ## 14. Interim dependency: display-awake
 
@@ -492,3 +515,226 @@ Expected: hits only in `com.ericsmith66.prefab.plist`, `ai.agentforge.prefab-dis
 `homekit-feed-check.sh` (a comment) — none an off-box caller; the on-box `prefab` CLI talks `localhost:8080`; every
 ESTABLISHED peer is `127.0.0.1` or `[::1]`. **Result: PENDING — recorded here at window prep** (date, hit list, peers).
 An off-box caller → stop: the P12 precondition fails; ask Eric.
+
+## 18. Prefab S″ and later (plan § 15.18 R7-3…R7-9, R7-16; § 15.19 R8-2…R8-7)
+
+Until the S″ window this section describes the build, not production: S′ (§ 5) runs on `.253`. `S2` = the 40-hex
+commit S″ is built from (the tip of prefab `epic-1/prd-07-scene-judgment-scheduler`; recorded in the task log). No Debug
+build (D-3) and no scratch launch is made for S″ (rule 11; plan R7-9 item 5).
+
+**What S″ changes (one restart — the plan's R7-15 window).**
+- **F-1 fixed (R8-5 branch 1):** the HTTP server runs on BSD sockets (`PrefabHTTP.makeApplication` on
+  `MultiThreadedEventLoopGroup.singleton`) instead of Network.framework, with the same bind, port, routes and
+  middleware. Reproduced hostless before the fix: on Network.framework 1/200 and 46/200 `Connection: close` requests got
+  a response; on BSD sockets 200/200. hummingbird-core logs once that BSD sockets on iOS are "not recommended"
+  (harmless on a Mac). § 1's keep-alive rule stays until W8.
+- **Failed-only polling** (§ 13a's durable fix) — the lines and the decision below.
+- **Config safety:** an existing `config.json` that does not decode → exit 2 at launch, the file never overwritten; a
+  missing file → the default is written, now with `polling.enabled: false`. New optional key
+  `polling.maxReadsPerMinutePerBridge` (missing → 6; clamped to 1…30).
+- **Full-detail reads are HomeKit's cache by default** — the table below. Rails PR 1e (`HomekitRekey` asks for
+  `?read=cache`; name-route read-backs are `readback_unverifiable`) must be live BEFORE the swap (W2 before W4).
+- **Strict bool:** `GetValue(_, "bool")` accepts only `1/0/true/false/on/off` (any case); anything else → 400
+  `{"error":"bad_value","format":"bool"}`, nothing written. Rails sends `"true"`/`"false"`.
+- **403 body:** unchanged, except that a Debug build forced by `PREFAB_FORCE_UNAUTHORIZED` adds `"cause"`.
+- **Webhook sender:** unchanged (fire-and-forget, as S′). The ordered retry is a deferred carry (plan R8-7 item 7).
+- **Release without coverage instrumentation:** `Prefab.xctestplan`'s `defaultOptions` say `"codeCoverage" : false`
+  (`xcodebuild build` takes the scheme's test-plan coverage: S′'s Release had 10,078 `___profc_` symbols; Xcode 26.2
+  refuses `-enableCodeCoverage NO` outside testing). `build-release.sh` runs `scripts/parity-checks.sh` on the product: the
+  D-2 record gains `coverage symbols (___profc_): 0`, `coverage sections (__llvm_prf_cnts): 0`,
+  `debug switch strings: 0`, and any failure (`coverage-instrumented`, `nm-failed`, `debug-switch-strings`) → exit 3.
+  P5 runs the same script on m3ultra, on a copy of the binary under a neutral name (never on `.253`):
+  `scripts/parity-checks.sh --binary <copy>` → `checks:  all passed`, exit 0.
+
+**O27 — the polling lines S″ prints** (written by `logToFile`, so each one starts with `[<ISO-8601 UTC>] ` in
+`~/Documents/homebase_debug.log`; `logging.enabled` must stay true):
+1. **Startup, exactly once per start**, when every subscription completion is in, or 60 s after setup:
+   `Polling: mode=failed-only enabled=<true|false> subscriptions=<N> ok=<S> failed=<F> pending=<P> excluded=<X> polled=<C> bridges=<B> limit=<L>/min/bridge`
+   — `N = S + F + P`; `excluded` = failed subscriptions whose accessory `deviceRegistry` excludes (computed with polling
+   on or off), `X ≤ F`; polling off → `polled=0 bridges=0`; on → `polled = F − X`; `bridges ≤ polled`, and 0 exactly
+   when `polled` is 0; `1 ≤ L ≤ 30`.
+   Production (polling off): `Polling: mode=failed-only enabled=false subscriptions=<N> ok=<S> failed=<F> pending=<P> excluded=<X> polled=0 bridges=0 limit=6/min/bridge`.
+   The first S″ start's `<N>` is the reference (`N_REF`); a later start more than 5 % away is reported to Eric.
+2. **Change line** — only after the startup line, only when the set of failed subscriptions changes:
+   `Polling: changed failed=<F> pending=<P> polled=<C> bridges=<B>`
+3. **Clamp line** — only for a limit outside 1…30, once: `Polling: limit <raw> outside 1..30, using <L>`
+4. **Read-state lines** — polling on only, on a change of state: `Polling: read failing <accessory> / <characteristic> code=<n>`
+   (`code=-1` = no answer within 30 s) and `Polling: read ok again <accessory> / <characteristic>`
+5. **Never again:** `Starting polling for …` (poll-all) and S′'s `Polling: <n> accessories, enabled: …`.
+
+**The polling decision [Eric-pending — default: OFF].** The S″ window does not touch `polling.enabled: false`: with
+every subscription succeeding (0 `Notification failed` lines since 2026-10-05) failed-only polling would read nothing,
+and each start now measures `failed` anyway. If a start shows `failed>0`, Eric decides. Turning it on: back up
+`config.json`, set `polling.enabled` to `true`, restart with his yes (§ 10's `prefab_stop`, bootstrap,
+`prefab_start_check`), `s2_restart_check …` (it then expects `enabled=true`, `polled = failed − excluded`), and
+`s2_rate_check` at least 55 minutes later. A subscription that failed is retried only by a restart: Prefab subscribes
+at startup and for added accessories, and has no reachability handler yet (a carry for a later build).
+
+**Full-detail read modes** (`GET /accessories/:home/id/:uuid` and the name route `GET /accessories/:home/:room/:accessory`):
+
+| Query | Device reads | Response |
+|---|---|---|
+| none, or `?read=cache` | none: HomeKit's cached values (`value: ""` = HomeKit holds none) | the detail + `"values":"cache"` |
+| `?read=live` | one `readValue` per characteristic, 12 s guard (504 `read_timeout`) | the detail + `"values":"live"`, `"readErrors":<failed reads>`; one `[readAll] <accessory uuid> readValue x<n>` line |
+| `?characteristic=<uuid>` (id route only) | exactly one `readValue`, 5 s guard | the single-characteristic read, unchanged — the only read that verifies a write |
+| any other `read` value, or `read` with `characteristic` | none | 400 `{"error":"bad_request","what":"read"}` |
+
+A guard that expires logs `[readAll] <accessory uuid> → 504 read_timeout` or `[readOne] <characteristic uuid> → 504
+read_timeout`. List, room and summary items are unchanged (no `values`). From S″ on, § 10's step 20b measures nothing
+(cached reads); a live check uses `?read=live`, one accessory at a time.
+
+**Prefab relaunches every ~10 s and `/version` never answers** — an undecodable config (S″ exits 2; the LaunchAgent's
+`KeepAlive` with `open -W` relaunches it, and stderr is never seen):
+`log show --last 5m --style compact --predicate 'process == "Prefab"' | grep -m3 'prefab: invalid'` names the reason.
+Then `prefab_stop` (bootout ends the loop), fix the config or restore the newest backup (Eric's call), bootstrap and
+`prefab_start_check`. In the S″ window this is W6's rollback cell: no `/version` within 30 s → the whole-window rollback (§ 13).
+
+### 18.1 The restart check — every Prefab restart from S″ on (plan § 15.19 R8-4)
+
+Every restart — the S″ window, PRD-1-05's N1 drill, PRD-1-08's `apply[all]`, PRD-1-09's E-8 drill, any incident fix —
+runs `s2_restart_check "$S2" "$S2CD" "$S2SHA" "$N_REF"` and, at least 55 minutes later, `s2_rate_check <mark epoch> <mark
+count>`. Every block starts with this preamble (bash on `.253`, never zsh). `S2`, `E1`, `PUMA0` and `N_REF` are edited
+at its top, never carried in a shell.
+
+```bash
+# R8-16 preamble — REPLACES R7-16's preamble. bash on .253 (ssh nextgen 'bash -s' < block, or `bash` after ssh). Never zsh.
+cd ~/Development/legion/projects/eureka-homekit
+export PATH="$HOME/.rbenv/shims:/opt/homebrew/bin:/opt/homebrew/opt/postgresql@16/bin:$PATH"; export RAILS_ENV=production
+# --- the four values carried between blocks (PC-13): edit them here, never rely on an earlier shell ---
+S2=""        # the 40-hex S2 from the task log
+E1=""        # PR 1e's merge commit (P2)
+PUMA0=""     # Puma's pid printed at W1 by `puma_pid` (PC-10)
+N_REF=""     # W7's `subscriptions=<N>` (PC-2); empty until W7
+S2REC=$HOME/Library/Developer/Xcode/DerivedData/prefab-${S2:0:12}-Release.parity.txt
+S2CD=$(sed -n 's/^CDHash: //p' "$S2REC" 2>/dev/null); S2SHA=$(sed -n 's/^sha256 Contents\/MacOS\/Prefab: //p' "$S2REC" 2>/dev/null)
+P='/opt/homebrew/opt/postgresql@16/bin/psql -h 127.0.0.1 -U ericsmith66 eureka_production -At'
+ro() { PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=60s' $P "$@"; }      # read-only psql
+AGE="select extract(epoch from (now() at time zone 'UTC') - max(created_at))::int from homekit_events"
+EV60="select count(*) from homekit_events where created_at >= (now() at time zone 'UTC') - interval '60 minutes'"
+EV10="select count(*) from homekit_events where created_at >= (now() at time zone 'UTC') - interval '10 minutes'"
+EVY="select count(*) from homekit_events where created_at >= (now() at time zone 'UTC') - interval '25 hours' and created_at < (now() at time zone 'UTC') - interval '24 hours'"
+PP='/Users/ericsmith66/Applications/Server/Prefab.app/Contents/MacOS/Prefab'
+PNAME=${PNAME:-Prefab}   # the process name rule 11 counts; tests set a neutral name (PC-23), never "Prefab"
+DLOG="$HOME/Documents/homebase_debug.log"
+CFG="$HOME/Library/Application Support/Prefab/config.json"
+FLAG="$HOME/Library/Application Support/Prefab/triggers-write-enabled"
+prefab_stop() {   # R6-2: bootout stops only the `open -W` waiter; Hummingbird traps the first SIGTERM (HTTP only)
+  launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.ericsmith66.prefab.plist    # first, so KeepAlive cannot relaunch
+  local t0=$(date +%s) by=none i
+  pkill -TERM -f "$PP"; for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "$PP" >/dev/null || { by="first TERM"; break; }; sleep 1; done
+  if pgrep -f "$PP" >/dev/null; then
+    pkill -TERM -f "$PP"; for i in 1 2 3 4 5; do pgrep -f "$PP" >/dev/null || { by="second TERM"; break; }; sleep 1; done
+  fi
+  if pgrep -f "$PP" >/dev/null; then
+    pkill -KILL -f "$PP"; for i in 1 2 3; do pgrep -f "$PP" >/dev/null || { by=KILL; break; }; sleep 1; done
+  fi
+  pgrep -fl "$PP" && { echo "STOP: Prefab still running after KILL"; return 1; }
+  echo "prefab stopped (ended by $by after $(( $(date +%s) - t0 ))s)"   # expected: second TERM after ~10-11 s
+}
+prefab_count()     { pgrep -f "$PP" | wc -l | tr -d ' '; }        # at the production path
+prefab_count_any() { pgrep -x "$PNAME" | wc -l | tr -d ' '; }     # PC-3: any process with that name, any path (the CLI is lowercase `prefab`)
+prefab_start_check() {   # after every bootstrap: exactly ONE Prefab anywhere, then /version
+  local i; for i in $(seq 1 20); do [ "$(prefab_count)" = 1 ] && break; sleep 1; done
+  pgrep -lx "$PNAME"
+  [ "$(prefab_count)" = 1 ] && [ "$(prefab_count_any)" = 1 ] || { echo "STOP: $(prefab_count) at the production path, $(prefab_count_any) named $PNAME"; return 1; }
+  sleep 5; curl -s -m 5 -w '\n%{http_code}\n' 127.0.0.1:8080/version
+}
+s2_identity() {   # (3) /version + (4) CDHash and sha256 of the running bundle. Args: <git_sha> <CDHash> <sha256>
+  local v c s
+  [ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] || { echo "FAIL identity: an expected value is empty (set S2 in the preamble)"; return 1; }
+  v=$(curl -s -m 5 127.0.0.1:8080/version | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["git_sha"], d["bind"], d["bonjour"])')
+  c=$(codesign -dvvv ~/Applications/Server/Prefab.app 2>&1 | sed -n 's/^CDHash=//p')
+  s=$(shasum -a 256 "$PP" | cut -c1-64)
+  echo "version: $v"; echo "CDHash: $c"; echo "sha256: $s"
+  if [ "$v" = "$1 127.0.0.1:8080 False" ] && [ "$c" = "$2" ] && [ "$s" = "$3" ]; then echo "PASS identity"; else echo "FAIL identity"; return 1; fi
+}
+s2_polling_check() {   # (1) O27. Args: [<reference N>]. Exactly one S″ startup line, its rules, no S′ or poll-all line (PC-2)
+  local line n
+  n=$(grep -a -c 'Polling: mode=failed-only' "$DLOG")
+  [ "$n" = 1 ] || { echo "FAIL: expected exactly one S″ polling line, found $n"; return 1; }
+  line=$(grep -a -m1 'Polling: mode=failed-only' "$DLOG")
+  printf '%s\n' "$line"
+  printf '%s\n' "$line" | REF="${1:-}" python3 -c '
+import os, re, sys
+s = sys.stdin.read().strip()
+m = re.fullmatch(r"\[[0-9T:.+Z-]+\] Polling: mode=failed-only enabled=(true|false) subscriptions=(\d+) ok=(\d+) failed=(\d+) pending=(\d+) excluded=(\d+) polled=(\d+) bridges=(\d+) limit=(\d+)/min/bridge", s)
+if not m:
+    print("FAIL: the line does not match O27"); sys.exit(1)
+en = m.group(1); n, ok, f, p, x, c, b, lim = (int(g) for g in m.groups()[1:])
+bad = []
+if ok + f + p != n: bad.append("ok+failed+pending != subscriptions")
+if x > f: bad.append("excluded > failed")
+if en == "false" and (c, b) != (0, 0): bad.append("polling off but polled/bridges not 0")
+if en == "true" and c != f - x: bad.append("polled != failed - excluded")
+if en == "true" and not (b <= c and (b == 0) == (c == 0)): bad.append("bridges inconsistent with polled")
+if not 1 <= lim <= 30: bad.append("limit outside 1..30")
+if bad:
+    print("FAIL: " + "; ".join(bad)); sys.exit(1)
+print("PASS polling line (enabled=%s subscriptions=%d ok=%d failed=%d pending=%d polled=%d)" % (en, n, ok, f, p, c))
+ref = os.environ.get("REF", "")
+if ref and (abs(n - int(ref)) * 20 > int(ref) or abs(ok - int(ref)) * 20 > int(ref)):
+    print("REPORT TO ERIC: subscriptions/ok more than 5 %% away from the reference %s" % ref); sys.exit(3)
+' || return $?
+  [ "$(grep -a -c 'Starting polling for' "$DLOG")" = 0 ] || { echo "FAIL: the poll-all line is present"; return 1; }
+  [ "$(grep -a -c -E 'Polling: [0-9]+ accessories, enabled:' "$DLOG")" = 0 ] || { echo "FAIL: an S′ polling line is present"; return 1; }
+}
+s2_rate_mark() { echo "rate mark: $(date +%s) $(grep -a -c '\[NATIVE\]' "$DLOG")  events_60m=$(ro -c "$EV60")"; }   # record the two numbers
+s2_rate_check() {   # (2) args: <mark epoch> <mark count>. Mark AFTER the restart: the log restarts at every Prefab start (PC-1)
+  local t0=$1 n0=$2 t1 n1 rate ev evy h
+  t1=$(date +%s); n1=$(grep -a -c '\[NATIVE\]' "$DLOG"); h=${S2_HOUR:-$(date +%H)}; h=$((10#$h))
+  [ $((t1 - t0)) -ge 3300 ] || { echo "WAIT: only $(( (t1 - t0) / 60 )) min since the mark"; return 2; }
+  [ "$n1" -ge "$n0" ] || { echo "FAIL rate: the debug log restarted after the mark ($n1 < $n0); take a new mark"; return 1; }
+  rate=$(( (n1 - n0) * 3600 / (t1 - t0) )); ev=$(ro -c "$EV60"); evy=$(ro -c "$EVY")
+  echo "native/h=$rate events_60m=$ev same_hour_yesterday=$evy hour=$h over $(( (t1 - t0) / 60 )) min"
+  if [ "$rate" -ge 300 ] && [ "$ev" -ge 300 ]; then echo "PASS rate (both >= 300)"; return 0; fi
+  if [ "$h" -ge 8 ] && [ "$h" -lt 22 ]; then echo "FAIL rate (08:00-22:00: both must be >= 300)"; return 1; fi
+  if [ "$rate" -ge 110 ] && [ "$ev" -ge 110 ] && [ $((rate * 2)) -ge "$evy" ] && [ $((ev * 2)) -ge "$evy" ]; then
+    echo "PASS rate (night rule: both >= 110 and >= 50 % of the same hour yesterday)"; return 0
+  fi
+  echo "FAIL rate"; return 1
+}
+lutron_unreachable() {   # the Lutron Processor (2)'s bridged accessories: the count and the sorted unreachable set (PC-18b)
+  curl -s 127.0.0.1:8080/accessories/Waverly | python3 -c 'import json, sys
+d = json.load(sys.stdin); p = {a["uniqueIdentifier"] for a in d if a.get("name") == "Lutron Processor (2)"}
+b = [a for a in d if a.get("bridgedBy") in p]; u = sorted(a["uniqueIdentifier"] for a in b if a.get("isReachable") is False)
+print("lutron_bridge=%d bridged=%d unreachable=%d %s" % (len(p), len(b), len(u), ",".join(u) or "-"))'
+}
+f1_check() {   # F-1 — S′ (and R8-6 branches 2-4): 200 / 000 rc=52 / 000 rc=52; branch 1: 200 rc=0 three times
+  curl -s -m 5 -o /dev/null -w 'plain            http=%{http_code}' 127.0.0.1:8080/version; echo " rc=$?"
+  curl -s -m 5 -o /dev/null -w 'Connection:close http=%{http_code}' -H 'Connection: close' 127.0.0.1:8080/version; echo " rc=$?"
+  curl -s -m 5 -o /dev/null -w 'HTTP/1.0         http=%{http_code}' -0 127.0.0.1:8080/version; echo " rc=$?"
+}
+webhook_401s() {   # PC-16: 401s answered to the webhook path in the last 20,000 lines (Rails tags Started/Completed by request id)
+  tail -n 20000 "${RLOG:-log/production_server.log}" | awk 'match($0, /^\[[0-9a-f-]+\]/) { id = substr($0, RSTART, RLENGTH) } /Started POST "\/api\/homekit\/events"/ { ev[id] = 1 } /Completed 401/ && (id in ev) { n++ } END { print n + 0 }'
+}
+puma_pid() { launchctl print gui/$(id -u)/com.ericsmith66.eureka | awk '/^[[:space:]]*pid = / { print $3; exit }'; }   # PC-10
+pr1e_live_check() {   # PC-10: W4's precondition — PR 1e on disk, Puma restarted since W1, the new code loads
+  [ -n "$E1" ] && [ -n "$PUMA0" ] || { echo "STOP: set E1 and PUMA0 in the preamble first"; return 1; }
+  if [ "$(git rev-parse HEAD)" = "$E1" ] && [ "$(puma_pid)" != "$PUMA0" ] \
+     && [ "$(bin/rails runner 'p PrefabClient.respond_to?(:accessory_structure)' 2>/dev/null)" = true ]; then echo pr1e-live; return 0; fi
+  echo "STOP: PR 1e is not live in Puma — no W4"; return 1
+}
+s2_restart_check() {   # THE restart check. Args: <git_sha> <CDHash> <sha256> [<reference N>]. Then s2_rate_check >= 55 min later
+  local i rc
+  echo "instances: path=$(prefab_count) any=$(prefab_count_any)"
+  [ "$(prefab_count)" = 1 ] && [ "$(prefab_count_any)" = 1 ] || { echo "FAIL: not exactly one Prefab"; return 1; }
+  s2_identity "$1" "$2" "$3" || return 1
+  for i in $(seq 1 45); do grep -a -q 'Polling: mode=failed-only' "$DLOG" && break; sleep 2; done
+  s2_polling_check "${4:-}"; rc=$?
+  [ "$rc" = 0 ] || [ "$rc" = 3 ] || return 1          # rc 3 = report to Eric and continue
+  s2_rate_mark; echo "feed age: $(ro -c "$AGE") s"
+}
+```
+
+**The quote every later restart check uses:** "`s2_restart_check <git_sha> <CDHash> <sha256> <N_REF>` passes: one Prefab at the production path and one named `Prefab` anywhere; `s2_identity` passes; the debug log has **exactly one** `Polling: mode=failed-only` line, and it passes `s2_polling_check` — with polling off (production's default) it reads `Polling: mode=failed-only enabled=false subscriptions=<N> ok=<S> failed=<F> pending=<P> excluded=<X> polled=0 bridges=0 limit=6/min/bridge` with `S + F + P = N`; a result more than 5 % from `N_REF` is reported to Eric. There is no `Starting polling for` line and no S′ polling line. `s2_rate_check` passes at least 55 minutes later. 'The failed-only count' in PRD-1-05, 1-07 and 1-09 is the line's `polled`: 0 with polling off; with polling on, each bridge gets at most `limit` reads a minute (PT-143, PT-144)."
+
+**Tested on fixtures, never on `.253`** (PT-165): `scripts/test-restart-checks.sh` on m3ultra extracts the block above
+from this file and runs every PASS/FAIL/WAIT path of `s2_rate_check`, `s2_polling_check`, `prefab_start_check`,
+`s2_identity`, `s2_restart_check`, `webhook_401s`, `lutron_unreachable`, `f1_check` and `pr1e_live_check` against
+fixture logs, with `pgrep`, `curl`, `codesign`, `shasum`, `git`, `launchctl`, `date`, `sleep`, `bin/rails` and `ro`
+stubbed. No process is started, nothing is named `Prefab`, nothing is created under a `.app` folder.
+
+**Test stubs (plan R8-2 — binding on any Mac, for every implementer and QA run).** Never an executable, script or
+symlink named `Prefab`; nothing under a directory whose name ends in `.app`, and never the production bundle layout;
+no `open`, LaunchServices or `lsregister` for a stub. Instance checks are tested with a stubbed `pgrep`. A test that
+can only work with the real `Prefab.app/Contents/MacOS/Prefab` layout is not run; it goes to QA as a finding.
