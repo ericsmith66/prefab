@@ -30,9 +30,13 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
     /// Flag to track if initial observation has been performed
     private var didInitialObserve = false
     
-    /// Polling timer for accessories that don't support notifications
-    private var pollingTimer: Timer?
-    private var pollingAccessories: [(accessory: HMAccessory, characteristics: [HMCharacteristic])] = []
+    /// S″ failed-only polling (PRD-1-01 plan § 15.18 R7-7): the subscription ledger, the planner and the per-bridge
+    /// scheduler live in prefab/core/PollingCore.swift (HomeKit-free, tested hostless). HomeBase registers each
+    /// subscription, reports its completion and performs the reads the coordinator asks for. Poll-all no longer exists.
+    private let pollingQueue = DispatchQueue(label: "app.prefab.polling")
+    /// characteristic uuid → its accessory and characteristic, for the reads; touched on pollingQueue only.
+    private var pollTargets: [String: (accessory: HMAccessory, characteristic: HMCharacteristic)] = [:]
+    private lazy var polling: PollingCoordinator = makePollingCoordinator()
     
     /// Track native vs polling callbacks
     private var nativeCallbackCount = 0
@@ -61,6 +65,7 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
     
     override init(){
         super.init()
+        _ = polling   // created here, before any HomeKit completion can reach it (lazy vars are not thread-safe)
         
         // Only setup file logging if enabled in config
         if configManager.config.logging.enabled {
@@ -92,6 +97,7 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
             for home in manager.homes {
                 home.delegate = self
                 logToFile("Observing home: \(home.name)")
+                let bridges = bridgeKeys(of: home)
                 for accessory in home.accessories {
                     accessory.delegate = self
                     accessoryDelegates.insert(accessory)
@@ -100,50 +106,22 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
                     accessoryNames[accessory.uniqueIdentifier.uuidString] = accessory.name
                     logToFile("Attached: '\(accessory.name)' (reachable: \(accessory.isReachable))")
                     
-                    // Subscribe to notifications for relevant characteristics
-                    for service in accessory.services {
-                        for characteristic in service.characteristics {
-                            if characteristic.properties.contains(HMCharacteristicPropertyReadable) &&
-                               characteristic.properties.contains(HMCharacteristicPropertySupportsEventNotification) {
-                                characteristic.enableNotification(true) { error in
-                                    if let error = error {
-                                        self.logToFile("Notification failed for \(accessory.name).\(characteristic.localizedDescription): \(error.localizedDescription)")
-                                        // Add to polling list as fallback ONLY on error
-                                        if let existingIndex = self.pollingAccessories.firstIndex(where: { $0.accessory === accessory }) {
-                                            self.pollingAccessories[existingIndex].characteristics.append(characteristic)
-                                        } else {
-                                            self.pollingAccessories.append((accessory: accessory, characteristics: [characteristic]))
-                                        }
-                                    }
-                                    // Successfully enabled - native callbacks will handle updates
-                                }
-                            }
-                        }
-                    }
+                    // Subscribe to notifications for relevant characteristics, each through the ledger (S″, R7-7 item 1)
+                    subscribe(accessory, bridgeKey: bridges[accessory.uniqueIdentifier] ?? accessory.uniqueIdentifier.uuidString)
                 }
             }
             
             let totalAccessories = manager.homes.flatMap { $0.accessories }.count
             logToFile("Finished setup: \(totalAccessories) accessories, \(accessoryDelegates.count) delegates")
             
-            // Start polling after a delay to let async subscriptions complete
-            logToFile("Scheduling polling to start in 2 seconds...")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                guard let self = self else { return }
-                self.logToFile("Polling: \(self.pollingAccessories.count) accessories, enabled: \(self.configManager.config.polling.enabled)")
-                
-                if !self.pollingAccessories.isEmpty && self.configManager.config.polling.enabled {
-                    self.startPolling()
-                } else if self.configManager.config.polling.enabled {
-                    // Fallback: poll all delegate accessories
-                    self.startPollingAllDelegateAccessories()
-                }
-                
-                // Log initial accessory report after 5 seconds to allow some callbacks to arrive
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-                    self?.logToFile("=== INITIAL ACCESSORY REPORT (after 5 seconds) ===")
-                    self?.logAccessoryReport()
-                }
+            // O27 (R7-7 item 2): the polling startup line prints when every subscription completion is in, or 60 s
+            // after setup, whichever is first; then only FAILED subscriptions are polled, and only if polling is on.
+            polling.finishSetup()
+            
+            // Log initial accessory report 7 seconds after setup (as S′: 2 s + 5 s) to allow some callbacks to arrive
+            DispatchQueue.main.asyncAfter(deadline: .now() + 7.0) { [weak self] in
+                self?.logToFile("=== INITIAL ACCESSORY REPORT (after 5 seconds) ===")
+                self?.logAccessoryReport()
             }
         }
         
@@ -163,97 +141,72 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
         
     }
     
-    private func startPollingAllDelegateAccessories() {
-        logToFile("Starting polling for \(accessoryDelegates.count) delegate accessories")
-        
-        pollingTimer?.invalidate()
-        
-        var tickCount = 0
-        let pollInterval = configManager.config.polling.intervalSeconds
-        let ticksPerReport = configManager.config.polling.ticksPerReport
-        
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            tickCount += 1
-            
-            // Log stats based on config (default: every 60 seconds)
-            if tickCount % ticksPerReport == 0 {
-                self.logToFile("Polling tick #\(tickCount): Native callbacks: \(self.nativeCallbackCount), Polling callbacks: \(self.pollingCallbackCount)")
-                self.logAccessoryReport()
-            }
-            
-            for accessory in self.accessoryDelegates {
-                guard let hmAccessory = accessory as? HMAccessory else { continue }
-                
-                // Check if this accessory should be polled based on config
-                let uuid = hmAccessory.uniqueIdentifier.uuidString
-                let name = hmAccessory.name
-                if !self.configManager.shouldPollAccessory(uuid: uuid, name: name) {
-                    continue
-                }
-                
-                for service in hmAccessory.services {
-                    for characteristic in service.characteristics {
-                        if characteristic.properties.contains(HMCharacteristicPropertyReadable) {
-                            let oldValue = characteristic.value
-                            
-                            characteristic.readValue { error in
-                                if error == nil {
-                                    let newValue = characteristic.value
-                                    
-                                    // Check if value changed
-                                    if let old = oldValue as? NSObject, let new = newValue as? NSObject {
-                                        if !old.isEqual(new) {
-                                            // Manually call the handler with POLLING source
-                                            self.handleCharacteristicUpdate(hmAccessory, characteristic: characteristic, source: "POLLING")
-                                        }
-                                    }
-                                }
-                            }
-                        }
+    // MARK: - Failed-only polling (S″, plan R7-7) — the HomeKit side of PollingCoordinator
+
+    /// Every readable, event-capable characteristic is registered in the ledger, THEN gets enableNotification(true);
+    /// the completion reports ok or failed(code). Readable characteristics without event support are not subscribable
+    /// and are never polled. Also used by home(_:didAdd:), so a later failure gives one change line and a new plan.
+    private func subscribe(_ accessory: HMAccessory, bridgeKey: String) {
+        for service in accessory.services {
+            for characteristic in service.characteristics
+            where characteristic.properties.contains(HMCharacteristicPropertyReadable) &&
+                  characteristic.properties.contains(HMCharacteristicPropertySupportsEventNotification) {
+                let id = characteristic.uniqueIdentifier.uuidString
+                pollingQueue.async { self.pollTargets[id] = (accessory, characteristic) }
+                polling.register(Subscription(characteristicId: id, accessoryId: accessory.uniqueIdentifier.uuidString,
+                                              accessoryName: accessory.name, characteristicName: characteristic.localizedDescription,
+                                              bridgeKey: bridgeKey, state: .pending))
+                characteristic.enableNotification(true) { error in
+                    if let error = error {
+                        self.logToFile("Notification failed for \(accessory.name).\(characteristic.localizedDescription): \(error.localizedDescription)")
                     }
+                    self.polling.complete(characteristicId: id, errorCode: error.map { ($0 as NSError).code })
                 }
             }
         }
     }
-    
-    private func startPolling() {
-        pollingTimer?.invalidate()
-        
-        let pollInterval = configManager.config.polling.intervalSeconds
-        logToFile("Starting polling: \(pollingAccessories.count) accessories @ \(pollInterval)s interval")
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            
-            for item in self.pollingAccessories {
-                // Check if this accessory should be polled based on config
-                let uuid = item.accessory.uniqueIdentifier.uuidString
-                let name = item.accessory.name
-                if !self.configManager.shouldPollAccessory(uuid: uuid, name: name) {
-                    continue
-                }
-                
-                for characteristic in item.characteristics {
-                    let oldValue = characteristic.value
-                    
-                    characteristic.readValue { error in
-                        if error == nil {
-                            let newValue = characteristic.value
-                            
-                            // Check if value changed
-                            if let old = oldValue as? NSObject, let new = newValue as? NSObject {
-                                if !old.isEqual(new) {
-                                    // Find the service that contains this characteristic
-                                    if let service = characteristic.service {
-                                        self.accessory(item.accessory, service: service, didUpdateValueFor: characteristic)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+
+    /// bridged accessory uuid → its bridge's uuid (the bridge key); an accessory that is not bridged is its own key.
+    private func bridgeKeys(of home: HMHome) -> [UUID: String] {
+        var keys: [UUID: String] = [:]
+        for bridge in home.accessories {
+            for id in bridge.uniqueIdentifiersForBridgedAccessories ?? [] { keys[id] = bridge.uniqueIdentifier.uuidString }
         }
+        return keys
+    }
+
+    private func makePollingCoordinator() -> PollingCoordinator {
+        let queue = pollingQueue
+        return PollingCoordinator(
+            queue: queue,
+            settings: { [unowned self] in
+                let p = self.configManager.config.polling
+                return PollSettings(enabled: p.enabled, rawLimit: p.maxReadsPerMinutePerBridge,
+                                    reportEvery: PollingReport.period(intervalSeconds: p.intervalSeconds, reportIntervalSeconds: p.reportIntervalSeconds))
+            },
+            include: { [unowned self] id, name in self.configManager.shouldPollAccessory(uuid: id, name: name) },
+            log: { [unowned self] line in self.logToFile(line) },
+            startRead: { [unowned self] sub, done in                       // on pollingQueue
+                guard let target = self.pollTargets[sub.characteristicId] else { done(PollScheduler.abandonedCode); return }
+                let oldValue = target.characteristic.value
+                target.characteristic.readValue { error in
+                    if let error = error { done((error as NSError).code); return }
+                    // A changed value goes through the existing path, webhook included (as S′'s polling did).
+                    if let old = oldValue as? NSObject, let new = target.characteristic.value as? NSObject, !old.isEqual(new) {
+                        self.handleCharacteristicUpdate(target.accessory, characteristic: target.characteristic, source: "POLLING")
+                    }
+                    done(nil)
+                }
+            },
+            clock: { ProcessInfo.processInfo.systemUptime },
+            makeTimer: { interval, handler in DispatchPollTimer(queue: queue, interval: interval, handler: handler) },
+            scheduleAfter: { delay, block in queue.asyncAfter(deadline: .now() + delay, execute: block) },
+            onReport: { [unowned self] tick in
+                DispatchQueue.main.async {
+                    self.logToFile("Polling tick #\(tick): Native callbacks: \(self.nativeCallbackCount), Polling callbacks: \(self.pollingCallbackCount)")
+                    self.logAccessoryReport()
+                }
+            })
     }
     
     // MARK: - Accessory Tracking Report
@@ -325,7 +278,6 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
     }
     
     deinit {
-        pollingTimer?.invalidate()
         logFileHandle?.closeFile()
     }
     
@@ -489,17 +441,8 @@ class HomeBase: NSObject, ObservableObject, HMHomeManagerDelegate, HMAccessoryDe
         // Track accessory name for reporting
         accessoryNames[accessory.uniqueIdentifier.uuidString] = accessory.name
         
-        // Subscribe to notifications for relevant characteristics
-        for service in accessory.services {
-            for characteristic in service.characteristics {
-                if characteristic.properties.contains(HMCharacteristicPropertyReadable) &&
-                   characteristic.properties.contains(HMCharacteristicPropertySupportsEventNotification) {
-                    characteristic.enableNotification(true) { _ in
-                        // Silently subscribe to notifications
-                    }
-                }
-            }
-        }
+        // S″ (R7-7 item 6): a subscription made later goes through the ledger too; a failure → one change line, new plan
+        subscribe(accessory, bridgeKey: bridgeKeys(of: home)[accessory.uniqueIdentifier] ?? accessory.uniqueIdentifier.uuidString)
         sendAccessoriesUpdated(home: home, accessory: accessory, change: "added")
     }
     

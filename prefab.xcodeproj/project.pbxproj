@@ -55,6 +55,9 @@
 		5E200000000000000000001A /* HTTPTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000019 /* HTTPTransportTests.swift */; };
 		5E200000000000000000001C /* ConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E200000000000000000001B /* ConfigTests.swift */; };
 		5E200000000000000000001F /* production-config-keys.json in Resources */ = {isa = PBXBuildFile; fileRef = 5E200000000000000000001E /* production-config-keys.json */; };
+		5E2000000000000000000021 /* PollingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000020 /* PollingTests.swift */; };
+		5E2000000000000000000023 /* PollingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000022 /* PollingCore.swift */; };
+		5E2000000000000000000024 /* PollingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000022 /* PollingCore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -145,6 +148,8 @@
 		5E2000000000000000000019 /* HTTPTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPTransportTests.swift; sourceTree = "<group>"; };
 		5E200000000000000000001B /* ConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigTests.swift; sourceTree = "<group>"; };
 		5E200000000000000000001E /* production-config-keys.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "production-config-keys.json"; sourceTree = "<group>"; };
+		5E2000000000000000000020 /* PollingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollingTests.swift; sourceTree = "<group>"; };
+		5E2000000000000000000022 /* PollingCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollingCore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -328,6 +333,7 @@
 		5E2000000000000000000001 /* core */ = {
 			isa = PBXGroup;
 			children = (
+				5E2000000000000000000022 /* PollingCore.swift */,
 				5E2000000000000000000002 /* PrefabHTTPCore.swift */,
 			);
 			path = core;
@@ -336,6 +342,7 @@
 		5E2000000000000000000008 /* prefabLogicTests */ = {
 			isa = PBXGroup;
 			children = (
+				5E2000000000000000000020 /* PollingTests.swift */,
 				5E200000000000000000001D /* Fixtures */,
 				5E200000000000000000001B /* ConfigTests.swift */,
 				5E2000000000000000000019 /* HTTPTransportTests.swift */,
@@ -574,6 +581,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E2000000000000000000023 /* PollingCore.swift in Sources */,
 				5E2000000000000000000003 /* PrefabHTTPCore.swift in Sources */,
 				A2EF401D2D71362000CFB0C5 /* HAPUUIDs.swift in Sources */,
 				CB78182D2B7D802B0077671A /* ContentView.swift in Sources */,
@@ -630,6 +638,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E2000000000000000000024 /* PollingCore.swift in Sources */,
+				5E2000000000000000000021 /* PollingTests.swift in Sources */,
 				5E200000000000000000001C /* ConfigTests.swift in Sources */,
 				5E200000000000000000001A /* HTTPTransportTests.swift in Sources */,
 				5E2000000000000000000018 /* RawHTTPClient.swift in Sources */,

@@ -215,21 +215,23 @@ class PrefabConfigManager {
         }
     }
 
-    /// Check if an accessory should be polled based on registry settings
+    /// Check if an accessory should be polled based on registry settings (the cached set gives O(1) lookups)
     func shouldPollAccessory(uuid: String, name: String) -> Bool {
-        switch config.deviceRegistry.mode {
-        case .all:
-            return true
-            
-        case .whitelist:
-            // Only poll if in the cached set (O(1) lookup)
-            return deviceSet.contains(uuid) || deviceSet.contains(name)
-            
-        case .blacklist:
-            // Poll unless in the cached set (O(1) lookup)
-            return !deviceSet.contains(uuid) && !deviceSet.contains(name)
+        PrefabConfig.DeviceRegistry.includes(mode: config.deviceRegistry.mode, devices: deviceSet, uuid: uuid, name: name)
+    }
+}
+
+extension PrefabConfig.DeviceRegistry {
+    /// shouldPollAccessory's rule, unchanged, as a pure function (S″: the poll planner's hostless tests use it).
+    static func includes(mode: RegistryMode, devices: Set<String>, uuid: String, name: String) -> Bool {
+        switch mode {
+        case .all: return true
+        case .whitelist: return devices.contains(uuid) || devices.contains(name)        // only poll what is listed
+        case .blacklist: return !devices.contains(uuid) && !devices.contains(name)      // poll all but what is listed
         }
     }
+
+    func includes(uuid: String, name: String) -> Bool { Self.includes(mode: mode, devices: Set(devices), uuid: uuid, name: name) }
 }
 
 // MARK: - Process environment (FR-A8), build info (FR-A1/FR-A2), timeout ladder (O4/O31)
