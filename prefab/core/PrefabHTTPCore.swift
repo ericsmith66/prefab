@@ -8,6 +8,29 @@
 
 import Foundation
 import Hummingbird
+import NIOPosix
+
+// MARK: - F-1: the HTTP server factory (S2-2; plan § 15.18 R7-6, § 15.19 R8-5)
+
+enum PrefabHTTP {
+    /// Builds the server exactly as Server.startServer() did at S′: bound to 127.0.0.1 only (P12) on `port`, logger at
+    /// debug, HBLogRequestsMiddleware(.debug) first. The caller adds HomeKitAuthLogger and the routes. The transport is
+    /// the caller's choice (owner note R8-5): production passes `.shared(productionEventLoopGroup)`; tests pass an
+    /// explicit group so they run the transport production runs.
+    static func makeApplication(port: Int, eventLoopGroupProvider: HBApplication.EventLoopGroupProvider) -> HBApplication {
+        let app = HBApplication(configuration: .init(address: .hostname("127.0.0.1", port: port)), eventLoopGroupProvider: eventLoopGroupProvider)
+        app.logger.logLevel = .debug
+        app.middleware.add(HBLogRequestsMiddleware(.debug))
+        return app
+    }
+
+    /// The event-loop group production serves HTTP on — R8-5 branch 1 (H1 confirmed by PT-137, 2026-10-08): BSD
+    /// sockets through NIOPosix. S′ used Hummingbird's `.singleton`, which under Mac Catalyst (compiled as `os(iOS)`)
+    /// is NIOTSEventLoopGroup.singleton — Network.framework, where hummingbird-core's close right after the response
+    /// write loses the response for `Connection: close` and HTTP/1.0 requests (F-1). hummingbird-core logs once that
+    /// BSD sockets on iOS are "not recommended"; harmless on a Mac. Same bind, port, routes and middleware.
+    static var productionEventLoopGroup: EventLoopGroup { MultiThreadedEventLoopGroup.singleton }
+}
 
 // MARK: - Moved unchanged from Routes.swift and Routes+Accessories.swift (S2-1)
 

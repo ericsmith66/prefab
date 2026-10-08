@@ -51,6 +51,8 @@
 		5E2000000000000000000013 /* Hummingbird in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2000000000000000000011 /* Hummingbird */; };
 		5E2000000000000000000014 /* HummingbirdXCT in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2000000000000000000012 /* HummingbirdXCT */; };
 		5E2000000000000000000016 /* DetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000015 /* DetailTests.swift */; };
+		5E2000000000000000000018 /* RawHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000017 /* RawHTTPClient.swift */; };
+		5E200000000000000000001A /* HTTPTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000019 /* HTTPTransportTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -137,6 +139,8 @@
 		5E2000000000000000000002 /* PrefabHTTPCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrefabHTTPCore.swift; sourceTree = "<group>"; };
 		5E2000000000000000000015 /* DetailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailTests.swift; sourceTree = "<group>"; };
 		5E2000000000000000000009 /* prefabLogicTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = prefabLogicTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5E2000000000000000000017 /* RawHTTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawHTTPClient.swift; sourceTree = "<group>"; };
+		5E2000000000000000000019 /* HTTPTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTTPTransportTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -328,6 +332,8 @@
 		5E2000000000000000000008 /* prefabLogicTests */ = {
 			isa = PBXGroup;
 			children = (
+				5E2000000000000000000019 /* HTTPTransportTests.swift */,
+				5E2000000000000000000017 /* RawHTTPClient.swift */,
 				5E2000000000000000000015 /* DetailTests.swift */,
 			);
 			path = prefabLogicTests;
@@ -609,6 +615,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E200000000000000000001A /* HTTPTransportTests.swift in Sources */,
+				5E2000000000000000000018 /* RawHTTPClient.swift in Sources */,
 				5E2000000000000000000004 /* PrefabHTTPCore.swift in Sources */,
 				5E2000000000000000000005 /* PrefabConfig.swift in Sources */,
 				5E2000000000000000000006 /* Data.swift in Sources */,

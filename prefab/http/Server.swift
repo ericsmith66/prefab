@@ -46,10 +46,10 @@ class Server  {
     @objc
     func startServer() {
         Task{
-            // P12: loopback only, no Bonjour. FR-A8: port from the environment.
-            let app = HBApplication(configuration: .init(address: .hostname("127.0.0.1", port: PrefabEnvironment.port)))
-            app.logger.logLevel = .debug
-            app.middleware.add(HBLogRequestsMiddleware(.debug))
+            // P12: loopback only, no Bonjour. FR-A8: port from the environment. F-1 (S″, R8-5 branch 1): the factory
+            // binds 127.0.0.1, sets the debug log level and request logging exactly as before, on BSD sockets.
+            let app = PrefabHTTP.makeApplication(port: PrefabEnvironment.port,
+                                                 eventLoopGroupProvider: .shared(PrefabHTTP.productionEventLoopGroup))
             app.middleware.add(HomeKitAuthLogger())
             app.router.get("version", use: self.getVersion)
             app.router.get("homes", use: self.getHomes)
