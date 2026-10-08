@@ -5,6 +5,11 @@ the PRD-1-01 implementation plan in `ericsmith66/skynet-mcp` (`knowledge_base/ep
 § 9 (build + parity) and § 10 (window) as amended by § 15.10, § 15.11, § 15.14 (R3) and § 15.15 (R4). Where this file
 and the plan differ, the plan wins. Every state-changing step needs Eric's "yes" at the time it runs.
 
+> **2026-10-08 — PRD-1-01 closeout (QA R-1; plan § 15.18 R7-2).** Added: rule 11 (§ 7 — never a second Prefab
+> instance on `.253`), R6-2's `prefab_stop` (§ 10 — TERM → TERM → KILL, by path), step 20b (§ 10), the F-1 keep-alive
+> rule for every client (§ 1) and the native-callback-rate check after every restart and every HomeKit-touching step
+> (§ 10a). The scratch launches (§ 7.1, § 8 step 5) and step 23d are history: never rerun them while production runs.
+
 Placeholders: `S` = the pinned 40-hex commit that is built and deployed (today `S′`, see § 5); `<repo>` = `.253`'s build
 clone `~/Development/prefab-build`, **detached at `S` and never pulled** (plan § 15.16 R5-2). Until window prep the build
 clone is still `~/tmp/prefab-prd01` (detached at `S′`); at window prep it is moved to `~/Development/prefab-build`.
@@ -22,6 +27,12 @@ clone is still `~/tmp/prefab-prd01` (detached at `S′`); at window prep it is m
 - **HTTP:** `127.0.0.1:8080` only (P12); no Bonjour. Routes: `/version` (never behind the HomeKit auth check),
   `/homes`, `/rooms/:home[/:room]`, `/accessories/:home[/summary|/:room[/:accessory]|/id/:uuid[?characteristic=]]`,
   `/scenes/:home[/:scene[/execute]]`, `/groups/:home[/:group]`.
+- **Every client uses keep-alive HTTP/1.1 (F-1, found 2026-10-03).** Prefab `S′` sends **no response** to a request
+  that carries `Connection: close`, or to any HTTP/1.0 request: the connection just closes (curl exit 52, "Empty
+  reply from server" — measured 2026-10-08 on `/version`). Use plain `curl` (HTTP/1.1 with keep-alive by default;
+  never `-0`, never `-H 'Connection: close'`) or Python `http.client`. Never Python `urllib.request`: it always sends
+  `Connection: close` (that is what broke step 20b's first runs). Rails' `PrefabClient` uses curl and is unaffected.
+  The cause is not established; the fix is planned in Prefab `S″` (plan § 15.18 R7-6).
 - **Config:** `~/Library/Application Support/Prefab/config.json` (mode 600 once it holds `webhook.authToken`).
   **Debug log:** `~/Documents/homebase_debug.log` (written only when `logging.enabled` is true; recreated at every
   start). Overrides, honoured by every build and reported by `/version`: `PREFAB_PORT` (1024–65535),
@@ -177,7 +188,29 @@ of Eric's (`~/Library/Developer/Xcode/DerivedData/prefab-faptzqxnfvnxsleiymoahon
 `/Volumes/ericsmith66/Library/Developer/Xcode/DerivedData/prefab-*/…`, and
 `/Volumes/ericsmith66/development/legion/projects/prefab/build/Build/Products/Release-maccatalyst/Prefab.app`).
 
-## 7. Scratch launch rules (O30; plan § 15.11 D-4/D-5 + R4-5)
+## 7. Rule 11 — never a second Prefab instance on `.253` (2026-10-03 incident)
+
+**Rule 11.** While production Prefab runs on `.253`, never start a second instance of `com.ericsmith66.prefab`
+there: no scratch build, no Debug build, no release copy, no `open -n`, and no hosted `xcodebuild test` (the
+`prefabTests` target is hosted by the app, so a test run launches one). A test that needs a running Prefab runs with
+production **stopped** (and restarted after, with Eric's yes), or on another Mac. Prefab's logic tests run hostless
+on m3ultra (plan § 15.18 R7-5).
+
+- **Why.** On 2026-10-03 step 23d launched a release copy of the production app beside production. When the copy
+  exited (22:43:35 UTC), HomeKit stopped delivering notifications to production for about 44 hours, until a restart
+  on 2026-10-05 at 14:04 CDT. Production kept answering reads and writes, so `/homes`, `/version` and writes looked
+  healthy; only the event rate showed it (≈ 600 events an hour → a trickle). HomeKit appears to tie notification
+  registrations to the app, not the process (inferred from the timing).
+- **After every restart, and after every step that touches HomeKit** (a scene run, a trigger toggle, a test with
+  production stopped): run the native-callback-rate check of § 10a. The feed age alone is not enough.
+- **The known fix** when reads work but notifications are gone: restart production Prefab (`prefab_stop`,
+  bootstrap, `prefab_start_check`, § 10), with Eric's yes.
+
+### 7.1 History — the 2026-10-02/03 scratch-launch rules (O30; plan § 15.11 D-4/D-5 + R4-5)
+
+**Do not run anything in this section while production runs on `.253` (rule 11).** It is kept as the record of how
+AC-01-06/41/42 were shown on 2026-10-02/03.
+
 
 - Every scratch launch sets **all three** overrides: `PREFAB_PORT=8081`, `PREFAB_CONFIG_PATH=/tmp/prefab-scratch/config.json`,
   `PREFAB_LOG_PATH=/tmp/prefab-scratch/homebase_debug.log`. Never the production config or log path: a running scratch
@@ -222,7 +255,7 @@ of Eric's (`~/Library/Developer/Xcode/DerivedData/prefab-faptzqxnfvnxsleiymoahon
 | 2 | off-box-caller check, § 17 | no off-box caller |
 | 3 | `for i in 1 2 3; do lsof -nP -iTCP:8080 -sTCP:ESTABLISHED \| awk 'NR>1{print $9}'; sleep 20; done` | every peer `127.0.0.1` or `[::1]` |
 | 4 | `launchctl print gui/$(id -u)/ai.agentforge.prefab-display-awake \| grep -E "state"; tail -1 ~/Library/Logs/homekit-feed-check.log` | `state = running`; `ok age=<small>s caffeinate=running` |
-| 5 | § 4 (D-1a, D-1, D-2, D-3), then the scratch launches of plan § 15.11 D-4/D-5 under § 7's rules — **each scratch launch only with Eric's word** | records `checks: all passed`; D-4: `/version` 200 with `bind:"127.0.0.1:8081"` + scratch paths, `/homes` 403; exit-2 lines rc 2; D-5 (1): 502 `write_failed` / 504 `write_timeout` with no `Attempting write` (BLOCKED if the debug instance answers 403 — ask Eric) |
+| 5 | § 4 (D-1a, D-1, D-2). **No scratch launch on `.253` while production runs** (rule 11, § 7); the D-4/D-5 launches of 2026-10-02 are history (§ 7.1) | a record ending `all passed` |
 
 ## 9. Window day, Rails part first (steps 7 → 6 + 8 → 9 → 10)
 
@@ -243,11 +276,18 @@ export PATH="$HOME/.rbenv/shims:/opt/homebrew/bin:/opt/homebrew/opt/postgresql@1
 P='/opt/homebrew/opt/postgresql@16/bin/psql -h 127.0.0.1 -U ericsmith66 eureka_production -At'
 AGE="select extract(epoch from (now() at time zone 'UTC') - max(created_at))::int from homekit_events"
 PP='/Users/ericsmith66/Applications/Server/Prefab.app/Contents/MacOS/Prefab'
-prefab_stop() {                                    # PA-1: bootout stops only the `open -W` waiter
+prefab_stop() {   # PA-1 + PD-16: bootout stops only the `open -W` waiter; Hummingbird traps the first SIGTERM (HTTP only)
   launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.ericsmith66.prefab.plist    # first, so KeepAlive cannot relaunch
-  pkill -TERM -f "$PP"; for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "$PP" >/dev/null || break; sleep 1; done
-  pgrep -f "$PP" >/dev/null && pkill -KILL -f "$PP"
-  pgrep -fl "$PP" || echo "prefab stopped"
+  local t0=$(date +%s) by=none i
+  pkill -TERM -f "$PP"; for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -f "$PP" >/dev/null || { by="first TERM"; break; }; sleep 1; done
+  if pgrep -f "$PP" >/dev/null; then
+    pkill -TERM -f "$PP"; for i in 1 2 3 4 5; do pgrep -f "$PP" >/dev/null || { by="second TERM"; break; }; sleep 1; done
+  fi
+  if pgrep -f "$PP" >/dev/null; then
+    pkill -KILL -f "$PP"; for i in 1 2 3; do pgrep -f "$PP" >/dev/null || { by=KILL; break; }; sleep 1; done
+  fi
+  pgrep -fl "$PP" && { echo "STOP: Prefab still running after KILL"; return 1; }
+  echo "prefab stopped (ended by $by after $(( $(date +%s) - t0 ))s)"   # expected: second TERM after ~10-11 s; at most ~19 s
 }
 prefab_start_check() {                             # after every bootstrap: exactly one NEW pid, then /version
   sleep 10; pgrep -fl "$PP"
@@ -255,32 +295,112 @@ prefab_start_check() {                             # after every bootstrap: exac
 }
 ```
 
+**Why TERM → TERM → KILL (plan R6-2, PD-16).** `launchctl bootout` stops only the `open -W` waiter. Hummingbird traps
+the first SIGTERM and stops only its HTTP server; the HomeKit layer keeps running. The second TERM ends the process
+(10–11 s on every stop so far). A stop by KILL is not a failure; `STOP` means Prefab survived KILL — ask Eric.
+
 | Step | Command | Expected | Rollback / if not |
 |---|---|---|---|
 | 11 | `git -C <repo> status --porcelain && git -C <repo> rev-parse HEAD`; D-7 (reuse the D-2 product if its record says `checks: all passed` and its `PrefabBuildInfo.plist` `GitSHA` is `S`); then the PR 1b fetch/ff/creds checks of plan § 15.10 step 11 | empty, `S`; `ff-ok`, `creds-untouched` | rebuild (§ 4.5) before T0 |
 | 12 | parity row checked; `cp "$HOME/Library/Application Support/com.apple.TCC/TCC.db" "$HOME/Library/Application Support/com.apple.TCC/TCC.db.bak-<date>"`; the TCC query of § 11 | backup exists; `2\|…` recorded (before) | — |
 | 13 | `curl -s 127.0.0.1:8080/accessories/Waverly \| python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'` → `N_before`; `tail -1 ~/Library/Logs/homekit-feed-check.log`; `$P -c "$AGE"` | recorded — **T0** | — |
-| 14 | `prefab_stop` | `prefab stopped` | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ericsmith66.prefab.plist; prefab_start_check` (old binary: `/version` 404, `/homes` 200) |
+| 14 | `prefab_stop` | `prefab stopped (ended by second TERM after ~10–11s)`; KILL is not a failure; `STOP` only if Prefab survives KILL | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ericsmith66.prefab.plist; prefab_start_check` (old binary: `/version` 404, `/homes` 200) |
 | 15 | `mv ~/Applications/Server/Prefab.app ~/Applications/Server/Prefab.app.prev-<date> && cp -R ~/Library/Developer/Xcode/DerivedData/prefab-<S12>-Release/Build/Products/Release-maccatalyst/Prefab.app ~/Applications/Server/Prefab.app && codesign -dvvv ~/Applications/Server/Prefab.app 2>&1 \| grep -E '^CDHash' && codesign --verify --strict --deep ~/Applications/Server/Prefab.app && shasum -a 256 ~/Applications/Server/Prefab.app/Contents/MacOS/Prefab` (the source is the D-2 `.app` itself; QA m4) | CDHash and sha256 == the Release parity row; `--verify` rc 0 | `rm -rf ~/Applications/Server/Prefab.app && mv ~/Applications/Server/Prefab.app.prev-<date> ~/Applications/Server/Prefab.app` |
 | 16a | `cp -p "$HOME/Library/Application Support/Prefab/config.json" "$HOME/Library/Application Support/Prefab/config.json.bak-<date>"` | backup exists | — |
 | 16 | webhook token, § 12 | `['authToken', 'enabled', 'url']`; `-rw-------` | `cp -p "…/config.json.bak-<date>" "…/config.json" && chmod 600 "…/config.json"` |
 | 17 | credential + PR 1b + ONE Rails restart + Prefab start (plan § 15.10 step 17): `append-cred.sh` for `prefab_webhook_token`, `credentials_ok`, `git merge --ff-only "$B"`, `launchctl kickstart -k gui/$(id -u)/com.ericsmith66.eureka`, `/up` 200, then `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ericsmith66.prefab.plist; prefab_start_check` | one NEW pid; `/version` 200 with `git_sha` == `S` | plan § 15.10 step 17 rollback (PR 1a merge checked out, credential removed, step 16 rollback, `prefab_stop`, bootstrap) |
 | 18 | `curl -s 127.0.0.1:8080/version` (AC-01-01: `git_sha` `S`, `git_dirty` false, `bind` `127.0.0.1:8080`, `bonjour` false, production `config_path`/`debug_log`, `timeouts {4,25,12,5}`); `curl -s 127.0.0.1:8080/homes`; wait 3 min; `$P -c "$AGE"`; `tail -n 5000 log/production_server.log \| grep -c 'POST "/api/homekit/events".* 401'` | AC-01-01 JSON; `[{"name":"Waverly"}]`; age `< 120`; `0` | first `pgrep -fl "$PP"` + `/version` (an old instance answering 404 → `prefab_stop`, bootstrap, `prefab_start_check`); only then suspect a token mismatch (§ 12) |
 | 19 | the TCC query of § 11 (after) | `2\|…` recorded | `/homes` 403 → re-grant (§ 11), `prefab_stop`, bootstrap, `prefab_start_check`, repeat 18 |
-| 20 | the list check of plan § 15.10 step 20 (count = `N_before` + Default Room count, every item a `uniqueIdentifier`, a `room`, `bridgedBy` null or a Bridge); `lsof -nP -iTCP:8080 -sTCP:LISTEN`; § 16; watchdog and display-awake state | one `127.0.0.1:8080` listener; no `nextgen` Bonjour line; watchdog `ok`; display-awake `running` — **T1** | — |
+| 20 | the list check of plan § 15.10 step 20 (count = `N_before` + Default Room count, every item a `uniqueIdentifier`, a `room`, and `bridgedBy` null or the `uniqueIdentifier` of an item in the same list — any category can bridge, e.g. the alarm panel or a thermostat (F-2)); `lsof -nP -iTCP:8080 -sTCP:LISTEN`; § 16; watchdog and display-awake state | one `127.0.0.1:8080` listener; no `nextgen` Bonjour line; watchdog `ok`; display-awake `running` — **T1** | — |
 
 Production `shasum -a 256 ~/Applications/Server/Prefab.app/Contents/MacOS/Prefab` and `codesign -dvvv` CDHash must equal
 the Release parity row (D-8, AC-01-01).
 
+**Step 20b — the latency gate (between steps 20 and 21; read-only; S′ era; plan R6-5).** It times three full-detail
+reads behind the Lutron Processor (2) (the test light, `Alley | Alley Flood Light` and one more) and five single `On`
+reads of the test light, with a keep-alive client (F-1):
+
+```bash
+python3 - <<'PY'
+import http.client, json, os, time
+PORT = int(os.environ.get("PREFAB_GATE_PORT", "8080"))          # 8080 = production; another port only for a fake-server test
+def get(path, t):
+    t0 = time.monotonic()
+    c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=t)  # HTTP/1.1, keep-alive, never "Connection: close" (F-1)
+    try:
+        c.request("GET", path)
+        r = c.getresponse(); body, code = r.read(), r.status
+    except Exception as e:
+        body, code = str(e).encode(), 0
+    finally:
+        c.close()
+    return code, time.monotonic() - t0, body
+B = "/accessories/Waverly"
+code, dt, body = get(B, 15); assert code == 200, (code, body[:200])
+d = json.loads(body)
+proc = [a["uniqueIdentifier"] for a in d if a.get("name") == "Lutron Processor (2)"]; assert len(proc) == 1, proc
+tl = [a for a in d if a.get("room") == "Kitchenette" and a.get("name") == "Rear Attic Lights"]
+assert len(tl) == 1 and tl[0].get("bridgedBy") == proc[0], "test light not found behind Lutron Processor (2)"
+others = sorted((a for a in d if a.get("bridgedBy") == proc[0] and a["uniqueIdentifier"] != tl[0]["uniqueIdentifier"]),
+                key=lambda a: (a["room"], a["name"]))
+pick = [a for a in others if (a["room"], a["name"]) == ("Alley", "Alley Flood Light")][:1]
+pick += [a for a in others if a not in pick][: 2 - len(pick)]
+details_ok, on = True, None
+for a in tl + pick:
+    code, dt, body = get(B + "/id/" + a["uniqueIdentifier"], 15)
+    print("detail %s|%s: %d %.3fs" % (a["room"], a["name"], code, dt)); details_ok &= (code == 200 and dt < 12)
+    if a is tl[0] and code == 200:
+        svc = [s for s in json.loads(body)["services"] if s["type"].upper() == "00000043-0000-1000-8000-0026BB765291"]
+        on = [x["uniqueIdentifier"] for x in svc[0]["characteristics"] if x["type"].upper() == "00000025-0000-1000-8000-0026BB765291"][0]
+fast = 0
+for i in range(5 if on else 0):
+    code, dt, body = get(B + "/id/" + tl[0]["uniqueIdentifier"] + "?characteristic=" + on, 8)
+    print("On read %d: %d %.3fs" % (i + 1, code, dt)); fast += (code == 200 and dt < 2.0); time.sleep(1)
+ok = details_ok and on is not None and fast >= 4
+print("latency gate: details %s; On reads 200 < 2 s: %d/5 -> %s" % ("all 200 < 12 s" if details_ok else "NOT all 200", fast, "PASS" if ok else "FAIL"))
+PY
+```
+
+**Pass rule:** all three full-detail reads answer 200 in < 12 s **and** at least 4 of the 5 `On` reads answer 200 in
+< 2 s → step 21. **FAIL → stop after step 20:** a valid resting state (plan R6-5); steps 21–29 are rescheduled, and no
+new restart window is needed. On 2026-10-03 the first two runs (an `urllib` version) got no response (F-1); the
+keep-alive rerun passed. From Prefab `S″` on, a full-detail read is served from HomeKit's cache by default and makes
+no device reads, so this gate then measures nothing; a live check uses `?read=live` (plan § 15.18 R7-8).
+
 **After the window:** re-key and live steps 21–29 (plan § 15.10 D; § 15.9). Prefab-only black-box checks there:
 23 (`?characteristic=` read < 2 s, one `[readOne]` debug-log line), 23a (unknown `characteristicId` → 404
 `what:characteristic`), 23b (unreachable accessory → 503 `unreachable`, no `Attempting write`), 23c (`value:"abc"` to a
-`uint8` → 400 `bad_value`), 23d (post-window debug-log inode check + the release-copy scratch launch, AC-01-42).
+`uint8` → 400 `bad_value`), 23d (history — its release-copy launch caused the 2026-10-03 incident; never rerun it while production runs, § 7).
 Since RM-4 a `?characteristic=` read whose HomeKit read fails answers 502 `read_failed`. So step 23b (plan R5-7) takes
 its PUT value **from the mirror**: `$P -c "select current_value from sensors where id=512"` (`Shop | 3d Printer`
 `Lightbulb/On`). A null value means the PUT is not sent (AC-01-04 BLOCKED, ask Eric). The read-only
 `?characteristic=` GET still runs, as PT-128 (2)'s record: 502 `read_failed`, 504 or 200. Step 23a carries R5-7's
 400/404 matrix (PT-129).
+
+## 10a. Native-callback-rate check — after every restart and every HomeKit-touching step (rule 11)
+
+The feed age can look healthy while HomeKit notifications are lost (2026-10-03 incident). After every Prefab restart,
+and after every step that touches HomeKit (a scene run, a trigger toggle, a test with production stopped), measure
+the rate over the next hour:
+
+```bash
+L=~/Documents/homebase_debug.log      # Prefab recreates it at every start: take the mark AFTER the restart
+P='/opt/homebrew/opt/postgresql@16/bin/psql -h 127.0.0.1 -U ericsmith66 eureka_production -At'
+echo "mark $(date +%s) $(grep -a -c '\[NATIVE\]' "$L")"            # record both numbers: T0 N0
+# … at least 55 minutes later, with the recorded T0 and N0:
+T0=<recorded>; N0=<recorded>; T1=$(date +%s); N1=$(grep -a -c '\[NATIVE\]' "$L")
+echo "native/h = $(( (N1 - N0) * 3600 / (T1 - T0) ))"                                   # → ≥ 300
+$P -c "select count(*) from homekit_events where created_at >= (now() at time zone 'UTC') - interval '60 minutes'"   # → ≥ 300
+$P -c "select count(*) from homekit_events where created_at >= (now() at time zone 'UTC') - interval '25 hours' and created_at < (now() at time zone 'UTC') - interval '24 hours'"   # same hour yesterday
+```
+
+- **Pass (08:00–22:00):** both numbers ≥ 300 — half of the 2026-10-06 baseline (≈ 600 events an hour; ≈ 560
+  `[NATIVE]` lines an hour).
+- **Pass (22:00–08:00):** both numbers ≥ 110 (half of the quietest hour measured on 2026-10-06, 222) **and** both
+  ≥ 50 % of the same hour yesterday. A dead hour yesterday is never a baseline.
+- **Fail:** tell Eric. A Prefab restart (`prefab_stop`, bootstrap, `prefab_start_check`) is the known fix when reads
+  work but notifications are gone. The watchdog (§ 15) alerts only below 60 events an hour; it cannot see a partial
+  loss.
 
 ## 11. TCC (`kTCCServiceWillow`)
 
@@ -332,7 +452,9 @@ Production `~/Library/Application Support/Prefab/config.json` keeps **`"polling"
   characteristic of ALL accessories every `intervalSeconds` (15). On 2026-10-02 that load (~800 reads per tick on one
   bridge) swamped the Lutron RA3 processor's own HomeKit bridge: its reads timed out and the Lutron lights showed
   "No Response" in Apple Home. Switching polling off (backup `config.json.bak-20261002-203636-polling`) fixed it at once.
-- **Check after any restart:** the debug log's startup lines must read `Polling: 0 accessories, enabled: false`.
+- **Check after any restart:** the debug log's startup lines must read `Polling: 0 accessories, enabled: false`
+  (until Prefab `S″`; from `S″` on the line is `Polling: mode=failed-only enabled=false …`, plan § 15.18 R7-7), **and**
+  the native-callback rate must pass § 10a.
 - **Never** restore a config backup from before 2026-10-02 without flipping `polling.enabled` back to `false`.
 - **Durable fix (not yet built):** poll only characteristics whose subscription FAILED, rate-limited per bridge; never
   poll-all. Until it lands, the config flag is the only guard — this build has the same poll-all code.
@@ -348,9 +470,12 @@ delete the plist.
 
 ## 15. Watchdog
 
-`ai.agentforge.homekit-feed-check` runs every 10 min and raises P0 when the newest `homekit_events` row is older than
-30 min (log `~/Library/Logs/homekit-feed-check.log`). It is never disabled during the window; a window longer than
-25 min produces one real P0 and one P1 recovery — acknowledge them in the task log, never silence them.
+`ai.agentforge.homekit-feed-check` runs every 10 min (log `~/Library/Logs/homekit-feed-check.log`). It raises **P0
+DEAD** when the newest `homekit_events` row is older than 30 min and, since 2026-10-06, **P0 DEGRADED** when fewer than
+60 events arrived in the last 60 minutes (once per episode, P1 on recovery). Script
+`~/Development/scripts/homekit-feed-check.sh`, md5 `eb6eb92c8325964807a1e5a5204ff36a` (backup `.bak-20261006`). It is
+never disabled during a window; a window longer than 25 min produces one real P0 and one P1 recovery — acknowledge
+them in the task log, never silence them. It cannot see a partial loss above 60 events an hour: use § 10a for that.
 
 ## 16. Bonjour check (no `timeout` on macOS)
 
