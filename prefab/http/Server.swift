@@ -71,6 +71,10 @@ class Server  {
             app.router.get("groups/:home", use: self.getGroups)
             app.router.get("groups/:home/:group", use: self.getGroup)
             app.router.put("groups/:home/:group", use: self.updateGroup)
+            // PRD-1-07 Track A: GET triggers/:home and PUT triggers/:home/:uuid/enabled (behind the write flag, S10)
+            TriggerRoutes.register(router: app.router, store: HomeKitTriggerStore(),
+                                   flagPath: TriggerWriteFlag.path(configPath: PrefabEnvironment.configPath),
+                                   log: { HomeBase.shared.logToFile($0) }, guardSeconds: PrefabTimeouts.writeSeconds)
             try app.start()
             RunLoop.current.add(Port(), forMode: .default)
             while true { RunLoop.current.run(mode: .default, before: Date.distantFuture) }

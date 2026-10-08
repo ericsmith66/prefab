@@ -260,3 +260,119 @@ final class TriggerEncodingTests: XCTestCase {
         XCTAssertEqual(parse(ok)["count"] as? Int, 0)
     }
 }
+
+/// T7A-19 (amendment A-1 / PC-9): the NSPredicate walker, hostless. Predicates are built here with NSComparisonPredicate /
+/// NSCompoundPredicate and injected key paths; HomeKit's own values are stood in for by marker objects and a classifier.
+final class PredicateWalkerTests: XCTestCase {
+    final class SunMarker: NSObject { let event: String; let offset: Int; init(_ e: String, _ o: Int) { event = e; offset = o } }
+    final class CharMarker: NSObject { let acc: String; let type: String; init(_ a: String, _ t: String) { acc = a; type = t } }
+
+    let keys = PredicateKeyPaths(time: "test.timeOfDay", significantEvent: "test.significantEvent", characteristic: "characteristic",
+                                 characteristicValue: "characteristicValue", presence: "presence")
+    let classify: (Any?) -> PredicateValue = { v in
+        if let s = v as? SunMarker { return .significantEvent(event: s.event, offsetSeconds: s.offset) }
+        if let c = v as? CharMarker { return .characteristic(accessoryUUID: c.acc, characteristicType: c.type) }
+        return PredicateValue.foundation(v)
+    }
+
+    func cmp(_ kp: String, _ op: NSComparisonPredicate.Operator, _ v: Any) -> NSPredicate {
+        NSComparisonPredicate(leftExpression: NSExpression(forKeyPath: kp), rightExpression: NSExpression(forConstantValue: v),
+                              modifier: .direct, type: op, options: [])
+    }
+    func and(_ ps: NSPredicate...) -> NSPredicate { NSCompoundPredicate(andPredicateWithSubpredicates: ps) }
+    func walk(_ p: NSPredicate) -> PredicateNode { PredicateWalker.walk(p, keys: keys, values: classify) }
+    func decoded(_ p: NSPredicate) -> DecodedPredicate? { TriggerJSON.decodePredicate(walk(p)) }
+
+    // (a) AND(time > 22:00, time < 06:00) → window
+    func test_T7A19a_timeWindow() {
+        let p = and(cmp("test.timeOfDay", .greaterThan, DateComponents(hour: 22, minute: 0)), cmp("test.timeOfDay", .lessThan, DateComponents(hour: 6, minute: 0)))
+        XCTAssertEqual(walk(p), .and([.comparison(key: .time, op: .gt, value: .timeOfDay(hour: 22, minute: 0)),
+                                      .comparison(key: .time, op: .lt, value: .timeOfDay(hour: 6, minute: 0))]))
+        XCTAssertEqual(decoded(p), .window(after: .clock(hour: 22, minute: 0), before: .clock(hour: 6, minute: 0)))
+        let json = TriggerJSON.encode(home: homeName, triggers: [eventTrigger(1, "Night", events: [calendar(23, 0)], predicateFormat: p.predicateFormat, predicate: walk(p))], writeEnabled: false)
+        XCTAssertTrue(json.contains(#""predicate_decoded":{"after":{"hour":22,"minute":0},"before":{"hour":6,"minute":0},"kind":"window"}"#), json)
+    }
+
+    // (b) time > sunset + 30 min, with the significant-event key → a window with a sun point
+    func test_T7A19b_sunsetPlus30_withTheSignificantEventKey() {
+        let p = cmp("test.significantEvent", .greaterThan, SunMarker("sunset", 1800))
+        XCTAssertEqual(walk(p), .comparison(key: .significantEvent, op: .gt, value: .significantEvent(event: "sunset", offsetSeconds: 1800)))
+        XCTAssertEqual(decoded(p), .window(after: .sun(event: "sunset", offsetSeconds: 1800), before: nil))
+    }
+
+    // (c) AND(characteristic == …, characteristicValue > 50) → characteristic
+    func test_T7A19c_characteristicComparison() {
+        let p = and(cmp("characteristic", .equalTo, CharMarker("ACC-1", "CHR-BRI")), cmp("characteristicValue", .greaterThan, 50))
+        XCTAssertEqual(decoded(p), .characteristic(accessoryUUID: "ACC-1", characteristicType: "CHR-BRI", op: .gt, value: "50"))
+        let json = TriggerJSON.encode(home: homeName, triggers: [eventTrigger(1, "Bright", events: [calendar(23, 0)], predicateFormat: p.predicateFormat, predicate: walk(p))], writeEnabled: false)
+        XCTAssertTrue(json.contains(#""predicate_decoded":{"accessory_uuid":"ACC-1","characteristic_type":"CHR-BRI","kind":"characteristic","op":">","value":"50"}"#), json)
+    }
+
+    // (d) OR, NOT, a function or subquery expression, an unknown key path → .other → null
+    func test_T7A19d_unknownShapes_areOther_andDecodeToNull() {
+        let after22 = cmp("test.timeOfDay", .greaterThan, DateComponents(hour: 22, minute: 0))
+        let before06 = cmp("test.timeOfDay", .lessThan, DateComponents(hour: 6, minute: 0))
+        let function = NSComparisonPredicate(leftExpression: NSExpression(forFunction: "uppercase:", arguments: [NSExpression(forKeyPath: "test.timeOfDay")]),
+                                             rightExpression: NSExpression(forConstantValue: "X"), modifier: .direct, type: .equalTo, options: [])
+        let subquery = NSComparisonPredicate(leftExpression: NSExpression(forSubquery: NSExpression(forKeyPath: "items"), usingIteratorVariable: "i",
+                                                                          predicate: NSPredicate(value: true)),
+                                             rightExpression: NSExpression(forConstantValue: 1), modifier: .direct, type: .equalTo, options: [])
+        let cases: [NSPredicate] = [
+            NSCompoundPredicate(orPredicateWithSubpredicates: [after22, before06]),
+            NSCompoundPredicate(notPredicateWithSubpredicate: after22),
+            function, subquery,
+            cmp("some.other.keyPath", .greaterThan, DateComponents(hour: 22, minute: 0)),
+            NSPredicate(value: true),
+            and(after22, NSCompoundPredicate(orPredicateWithSubpredicates: [before06, before06])),     // an AND with a child it cannot place
+            cmp("test.timeOfDay", .like, "22*"),
+            NSComparisonPredicate(leftExpression: NSExpression(forKeyPath: "test.timeOfDay"), rightExpression: NSExpression(forConstantValue: [1]),
+                                  modifier: .any, type: .equalTo, options: []),
+            cmp("test.timeOfDay", .greaterThan, Data([1, 2])),                                         // a value it cannot classify
+            NSComparisonPredicate(leftExpression: NSExpression(forConstantValue: DateComponents(hour: 22)), rightExpression: NSExpression(forKeyPath: "test.timeOfDay"),
+                                  modifier: .direct, type: .lessThan, options: []),                      // reversed sides
+        ]
+        for p in cases {
+            XCTAssertEqual(walk(p), .other, p.predicateFormat)
+            XCTAssertNil(decoded(p), p.predicateFormat)
+        }
+    }
+
+    // (e) a three-way AND (time, time, presence) → null: never a partial window
+    func test_T7A19e_threeWayAnd_isNull_neverAPartialWindow() {
+        let p = and(cmp("test.timeOfDay", .greaterThan, DateComponents(hour: 22, minute: 0)),
+                    cmp("test.timeOfDay", .lessThan, DateComponents(hour: 6, minute: 0)),
+                    cmp("presence", .equalTo, "home"))
+        XCTAssertNil(decoded(p))
+        let withUnclassified = and(cmp("test.timeOfDay", .greaterThan, DateComponents(hour: 22, minute: 0)),
+                                   cmp("test.timeOfDay", .lessThan, DateComponents(hour: 6, minute: 0)),
+                                   cmp("presence", .equalTo, Data([1])))
+        XCTAssertEqual(walk(withUnclassified), .other)
+        XCTAssertNil(decoded(withUnclassified))
+    }
+
+    func test_T7A19_uncalibratedKeys_neverMatch() {
+        let blank = PredicateKeyPaths(time: "", significantEvent: "", characteristic: "characteristic", characteristicValue: "characteristicValue", presence: "presence")
+        XCTAssertEqual(PredicateWalker.walk(cmp("", .greaterThan, DateComponents(hour: 22)), keys: blank), .other)
+        XCTAssertEqual(PredicateWalker.walk(cmp("test.timeOfDay", .greaterThan, DateComponents(hour: 22)), keys: blank), .other)
+    }
+
+    func test_T7A19_foundationValues() {
+        XCTAssertEqual(PredicateValue.foundation(DateComponents(hour: 5, minute: 30)), .timeOfDay(hour: 5, minute: 30))
+        XCTAssertEqual(PredicateValue.foundation(DateComponents(hour: 5)), .timeOfDay(hour: 5, minute: 0))
+        XCTAssertEqual(PredicateValue.foundation(DateComponents(minute: 5)), .other, "no hour → not a time of day")
+        XCTAssertEqual(PredicateValue.foundation(NSNumber(value: 50)), .scalar("50"))
+        XCTAssertEqual(PredicateValue.foundation("on"), .scalar("on"))
+        XCTAssertEqual(PredicateValue.foundation(nil), .other)
+        XCTAssertEqual(PredicateValue.foundation(Data()), .other)
+    }
+}
+
+extension PredicateWalkerTests {
+    /// A custom-selector comparison is refused like any unknown operator.
+    func test_T7A19d_customSelectorComparison_isOther() {
+        let p = NSComparisonPredicate(leftExpression: NSExpression(forKeyPath: "test.timeOfDay"), rightExpression: NSExpression(forConstantValue: "x"),
+                                      customSelector: #selector(NSString.isEqual(to:)))
+        XCTAssertEqual(p.predicateOperatorType, .customSelector)
+        XCTAssertEqual(walk(p), .other)
+    }
+}

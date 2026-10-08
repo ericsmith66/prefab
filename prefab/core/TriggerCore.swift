@@ -579,3 +579,77 @@ enum TriggerRoutes {
         HBResponse(status: status, headers: ["content-type": "application/json; charset=utf-8"], body: .byteBuffer(ByteBuffer(string: body)))
     }
 }
+
+// MARK: - The predicate walker (amendment A-1 / PC-9: Foundation-only, so it is tested hostless — T7A-19)
+
+/// The left key paths of HomeKit's predicates. HMCharacteristicKeyPath, HMCharacteristicValueKeyPath and HMPresenceKeyPath
+/// are HomeKit constants; the time and sun key paths are read once from HomeKit's own predicate builders
+/// (PredicateKeyPaths.calibrated, in the app's HomeKitTriggerStore). An empty string never matches anything.
+struct PredicateKeyPaths: Equatable {
+    var time: String
+    var significantEvent: String
+    var characteristic: String
+    var characteristicValue: String
+    var presence: String
+
+    func key(_ keyPath: String) -> PredicateKey {
+        guard !keyPath.isEmpty else { return .other }
+        if keyPath == time { return .time }
+        if keyPath == significantEvent { return .significantEvent }
+        if keyPath == characteristic { return .characteristic }
+        if keyPath == characteristicValue { return .characteristicValue }
+        if keyPath == presence { return .presence }
+        return .other
+    }
+}
+
+extension PredicateValue {
+    /// Foundation values: DateComponents with an hour → a time of day; a number or a string → a scalar; anything else →
+    /// other. The adapter's classifier handles HomeKit's own objects (a significant-time event, a characteristic) first.
+    static func foundation(_ v: Any?) -> PredicateValue {
+        switch v {
+        case let d as DateComponents:
+            guard let h = d.hour else { return .other }
+            return .timeOfDay(hour: h, minute: d.minute ?? 0)
+        case let n as NSNumber: return .scalar(n.stringValue)
+        case let s as String: return .scalar(s)
+        default: return .other
+        }
+    }
+}
+
+enum PredicateWalker {
+    /// NSPredicate → token tree. Any shape it does not know — OR, NOT, a function or subquery expression, an
+    /// aggregate modifier, a custom selector, an operator other than < <= == != >= >, an unknown key path, a value the
+    /// classifier cannot read, reversed sides, or an AND with ANY child it cannot place — makes the WHOLE tree `.other`,
+    /// so `predicate_decoded` is null. Never a partial window (Track B then marks the automation ineligible).
+    static func walk(_ predicate: NSPredicate, keys: PredicateKeyPaths,
+                     values: (Any?) -> PredicateValue = PredicateValue.foundation) -> PredicateNode {
+        if let c = predicate as? NSCompoundPredicate {
+            guard c.compoundPredicateType == .and, let subs = c.subpredicates as? [NSPredicate], !subs.isEmpty else { return .other }
+            let nodes = subs.map { walk($0, keys: keys, values: values) }
+            return nodes.contains(.other) ? .other : .and(nodes)
+        }
+        // (`customSelector` reads `compare:` even for plain comparisons; a real custom selector is operator type
+        // .customSelector, which op(_:) refuses.)
+        guard let c = predicate as? NSComparisonPredicate, c.comparisonPredicateModifier == .direct,
+              c.leftExpression.expressionType == .keyPath, c.rightExpression.expressionType == .constantValue else { return .other }
+        let key = keys.key(c.leftExpression.keyPath)
+        guard key != .other, let op = op(c.predicateOperatorType) else { return .other }
+        let value = values(c.rightExpression.constantValue)
+        guard value != .other else { return .other }
+        return .comparison(key: key, op: op, value: value)
+    }
+
+    private static func op(_ t: NSComparisonPredicate.Operator) -> ComparisonOp? {
+        switch t {
+        case .lessThan: return .lt
+        case .lessThanOrEqualTo: return .le
+        case .equalTo: return .eq
+        case .notEqualTo: return .ne
+        case .greaterThanOrEqualTo: return .ge
+        case .greaterThan: return .gt
+        default: return nil
+        }
+    }
+}
