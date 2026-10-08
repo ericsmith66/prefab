@@ -16,7 +16,9 @@ struct HomeKitAuthLogger: HBMiddleware {
         let authorized = homebase.homeManager.authorizationStatus.contains(.authorized) && !PrefabEnvironment.forceUnauthorized
         Logger().log("HomeKit Authorization status is \(homebase.homeManager.authorizationStatus.rawValue)")
         if !authorized {
-            return request.failure(.forbidden, message: "{\"error\": \"Prefab is not authorized to access your HomeKit data.\"}")
+            // S″ (R7-9 item 1 / R8-7): S′'s exact bytes, except that a Debug build names PREFAB_FORCE_UNAUTHORIZED when
+            // the switch is the cause (Release compiles that branch out; forceUnauthorized is the constant false there).
+            return request.failure(.forbidden, message: AuthFailure.body(forced: PrefabEnvironment.forceUnauthorized))
         }
         return next.respond(to: request)
     }

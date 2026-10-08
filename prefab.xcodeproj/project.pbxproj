@@ -58,6 +58,7 @@
 		5E2000000000000000000021 /* PollingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000020 /* PollingTests.swift */; };
 		5E2000000000000000000023 /* PollingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000022 /* PollingCore.swift */; };
 		5E2000000000000000000024 /* PollingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000022 /* PollingCore.swift */; };
+		5E2000000000000000000026 /* AuthAndValueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000025 /* AuthAndValueTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -150,6 +151,7 @@
 		5E200000000000000000001E /* production-config-keys.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "production-config-keys.json"; sourceTree = "<group>"; };
 		5E2000000000000000000020 /* PollingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollingTests.swift; sourceTree = "<group>"; };
 		5E2000000000000000000022 /* PollingCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollingCore.swift; sourceTree = "<group>"; };
+		5E2000000000000000000025 /* AuthAndValueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthAndValueTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -342,6 +344,7 @@
 		5E2000000000000000000008 /* prefabLogicTests */ = {
 			isa = PBXGroup;
 			children = (
+				5E2000000000000000000025 /* AuthAndValueTests.swift */,
 				5E2000000000000000000020 /* PollingTests.swift */,
 				5E200000000000000000001D /* Fixtures */,
 				5E200000000000000000001B /* ConfigTests.swift */,
@@ -638,6 +641,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E2000000000000000000026 /* AuthAndValueTests.swift in Sources */,
 				5E2000000000000000000024 /* PollingCore.swift in Sources */,
 				5E2000000000000000000021 /* PollingTests.swift in Sources */,
 				5E200000000000000000001C /* ConfigTests.swift in Sources */,

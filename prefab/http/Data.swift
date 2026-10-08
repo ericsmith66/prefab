@@ -129,8 +129,14 @@ enum UnknownFormatError : Error {
 func GetValue(value: String, format: String) throws -> Any {
     switch format {
     case "bool":
-        let trues: [String] = ["1", "true", "on"]
-        return trues.contains(where: { $0.lowercased() == value.lowercased() } )
+        // S″ (PRD-1-01 plan R7-9 item 6): strict. In any case 1/true/on → true and 0/false/off → false; anything else
+        // throws, so performWrite answers 400 {"error":"bad_value","format":"bool"} and writes nothing (S′ wrote false
+        // for "abc" or "yes"). updateGroup counts it as failed, as before. Shared with the CLI target (Foundation only).
+        switch value.lowercased() {
+        case "1", "true", "on": return true
+        case "0", "false", "off": return false
+        default: throw UnknownFormatError.formatValue(format: format)
+        }
     case "uint8":
         guard let v = UInt8(value) else { throw UnknownFormatError.formatValue(format: format) }
         return NSNumber(value: v)

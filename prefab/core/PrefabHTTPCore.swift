@@ -105,3 +105,17 @@ final class ReadTally {
     }
     var errors: Int { lock.lock(); defer { lock.unlock() }; return count }
 }
+
+// MARK: - S2-6: the HomeKit-auth 403 body (plan § 15.18 R7-9 item 1, as amended by § 15.19 R8-7 / PC-5)
+
+enum AuthFailure {
+    static let message = "Prefab is not authorized to access your HomeKit data."
+    /// Debug builds name the switch when PREFAB_FORCE_UNAUTHORIZED is the cause; Release compiles the cause branch out,
+    /// so the signed Release carries no switch string (PT-157 counts 0). Every other 403 keeps S′'s exact bytes.
+    static func body(forced: Bool) -> String {
+        #if DEBUG
+        if forced { return "{\"error\": \"\(message)\", \"cause\": \"PREFAB_FORCE_UNAUTHORIZED\"}" }
+        #endif
+        return "{\"error\": \"\(message)\"}"     // S′'s exact bytes
+    }
+}

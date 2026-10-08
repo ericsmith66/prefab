@@ -238,7 +238,10 @@ extension PrefabConfig.DeviceRegistry {
 
 /// Honoured by EVERY build (release included) and reported in /version: PREFAB_PORT (1024–65535, default 8080),
 /// PREFAB_CONFIG_PATH, PREFAB_LOG_PATH (absolute). A bad value exits 2 with the variable name on stderr.
-/// PREFAB_FORCE_UNAUTHORIZED / PREFAB_FAULT compile to constants in release builds (FR-A2/FR-A3, AC-01-42).
+/// The debug switches (S″, plan R7-9 item 1 — the text R6-7 aligned): Debug builds only: a set (even empty)
+/// PREFAB_FORCE_UNAUTHORIZED other than 1 exits 2 at launch; an empty PREFAB_FAULT is off; Release builds ignore both
+/// (they compile to constants and read no environment; FR-A2/FR-A3, AC-01-42). A Debug 403 caused by the switch names it
+/// (AuthFailure); every other 403 keeps S′'s bytes. An existing PREFAB_CONFIG_PATH file that does not decode exits 2 too.
 enum PrefabEnvironment {
     static let defaultPort = 8080
     static let defaultConfigPath: String = FileManager.default
@@ -277,9 +280,9 @@ enum PrefabEnvironment {
     }
 
     #if DEBUG
-    // RM-3 (QA m1): the debug switches fail closed. PREFAB_FORCE_UNAUTHORIZED set to anything but "1", or a non-empty
-    // PREFAB_FAULT outside {write_failed, write_timeout}, exits 2 at launch (validateAtLaunch), so a mistyped switch
-    // can never fall through to an authorized instance or a real HomeKit write.
+    // RM-3 (QA m1): the debug switches fail closed. A set (even empty) PREFAB_FORCE_UNAUTHORIZED other than "1", or a
+    // non-empty PREFAB_FAULT outside {write_failed, write_timeout}, exits 2 at launch (validateAtLaunch); an empty
+    // PREFAB_FAULT is off. So a mistyped switch can never fall through to an authorized instance or a real HomeKit write.
     static let forceUnauthorized: Bool = {
         guard let raw = ProcessInfo.processInfo.environment["PREFAB_FORCE_UNAUTHORIZED"] else { return false }
         guard raw == "1" else { die("PREFAB_FORCE_UNAUTHORIZED") }
