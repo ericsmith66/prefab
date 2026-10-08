@@ -42,17 +42,7 @@ struct CharacteristicValue: Encodable { var uniqueIdentifier: String; var type: 
 struct CharacteristicRead: Encodable { var uniqueIdentifier: String; var isReachable: Bool; var characteristic: CharacteristicValue }
 struct WriteResult: Encodable { var ok: Bool; var characteristicId: String; var value: String }
 
-/// Typed JSON error with the right status; Hummingbird renders any thrown HBHTTPResponseError as the response.
-struct PrefabJSONError: Error, HBHTTPResponseError {
-    let status: HTTPResponseStatus
-    let payload: [String: Any]
-    var headers: HTTPHeaders { ["content-type": "application/json; charset=utf-8"] }
-    func body(allocator: ByteBufferAllocator) -> ByteBuffer? {
-        let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])) ?? Data("{\"error\":\"internal\"}".utf8)
-        return allocator.buffer(data: data)
-    }
-    static func notFound(_ what: String) -> PrefabJSONError { .init(status: .notFound, payload: ["error": "not_found", "what": what]) }
-}
+// `PrefabJSONError` moved unchanged to prefab/core/PrefabHTTPCore.swift (S″ S2-1: the hostless logic tests use it).
 
 /// RM-1 (FR-A4 shape; QA m3): `value` and `format` are keys of the single-characteristic read's `characteristic`
 /// object — encoded as JSON null when HomeKit has none, instead of being omitted.

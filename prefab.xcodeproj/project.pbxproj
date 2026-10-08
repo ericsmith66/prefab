@@ -43,6 +43,14 @@
 		CBBC0F642B87D732005217EA /* Client+Accessories.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBC0F632B87D732005217EA /* Client+Accessories.swift */; };
 		DB4D94C87BA2467BB28C4F13 /* PrefabConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0120570F634EB19777E7CA /* PrefabConfig.swift */; };
 		E1A0000000000000000000B2 /* PrefabBuildInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = E1A0000000000000000000F1 /* PrefabBuildInfo.plist */; };
+		5E2000000000000000000003 /* PrefabHTTPCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000002 /* PrefabHTTPCore.swift */; };
+		5E2000000000000000000004 /* PrefabHTTPCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000002 /* PrefabHTTPCore.swift */; };
+		5E2000000000000000000005 /* PrefabConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0120570F634EB19777E7CA /* PrefabConfig.swift */; };
+		5E2000000000000000000006 /* Data.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB9C51872B7D8493007C1AD4 /* Data.swift */; };
+		5E2000000000000000000007 /* HAPUUIDs.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2EF401C2D71362000CFB0C5 /* HAPUUIDs.swift */; };
+		5E2000000000000000000013 /* Hummingbird in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2000000000000000000011 /* Hummingbird */; };
+		5E2000000000000000000014 /* HummingbirdXCT in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2000000000000000000012 /* HummingbirdXCT */; };
+		5E2000000000000000000016 /* DetailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000015 /* DetailTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -126,6 +134,9 @@
 		CBBC0F632B87D732005217EA /* Client+Accessories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Client+Accessories.swift"; sourceTree = "<group>"; };
 		CC0120570F634EB19777E7CA /* PrefabConfig.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = PrefabConfig.swift; sourceTree = "<group>"; };
 		E1A0000000000000000000F1 /* PrefabBuildInfo.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrefabBuildInfo.plist; sourceTree = "<group>"; };
+		5E2000000000000000000002 /* PrefabHTTPCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrefabHTTPCore.swift; sourceTree = "<group>"; };
+		5E2000000000000000000015 /* DetailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailTests.swift; sourceTree = "<group>"; };
+		5E2000000000000000000009 /* prefabLogicTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = prefabLogicTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -162,6 +173,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E200000000000000000000C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5E2000000000000000000013 /* Hummingbird in Frameworks */,
+				5E2000000000000000000014 /* HummingbirdXCT in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -179,6 +199,7 @@
 				A2EF40212D713C5700CFB0C5 /* Prefab.xctestplan */,
 				CB7818292B7D802B0077671A /* prefab */,
 				CB78183A2B7D802B0077671A /* prefabTests */,
+				5E2000000000000000000008 /* prefabLogicTests */,
 				CB7818442B7D802B0077671A /* prefabUITests */,
 				CB9C51952B7EB910007C1AD4 /* prefab-client */,
 				CB7818282B7D802B0077671A /* Products */,
@@ -193,6 +214,7 @@
 				CB7818372B7D802B0077671A /* prefabTests.xctest */,
 				CB7818412B7D802B0077671A /* prefabUITests.xctest */,
 				CB9C51942B7EB910007C1AD4 /* prefab */,
+				5E2000000000000000000009 /* prefabLogicTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -201,6 +223,7 @@
 			isa = PBXGroup;
 			children = (
 				E1A0000000000000000000F1 /* PrefabBuildInfo.plist */,
+				5E2000000000000000000001 /* core */,
 				CB9C518D2B7D849D007C1AD4 /* model */,
 				CB9C51862B7D8493007C1AD4 /* http */,
 				CB7818542B7D805E0077671A /* prefab.entitlements */,
@@ -294,6 +317,22 @@
 			path = Command;
 			sourceTree = "<group>";
 		};
+		5E2000000000000000000001 /* core */ = {
+			isa = PBXGroup;
+			children = (
+				5E2000000000000000000002 /* PrefabHTTPCore.swift */,
+			);
+			path = core;
+			sourceTree = "<group>";
+		};
+		5E2000000000000000000008 /* prefabLogicTests */ = {
+			isa = PBXGroup;
+			children = (
+				5E2000000000000000000015 /* DetailTests.swift */,
+			);
+			path = prefabLogicTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -378,6 +417,27 @@
 			productReference = CB9C51942B7EB910007C1AD4 /* prefab */;
 			productType = "com.apple.product-type.tool";
 		};
+		5E200000000000000000000A /* prefabLogicTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E200000000000000000000E /* Build configuration list for PBXNativeTarget "prefabLogicTests" */;
+			buildPhases = (
+				5E200000000000000000000B /* Sources */,
+				5E200000000000000000000C /* Frameworks */,
+				5E200000000000000000000D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = prefabLogicTests;
+			packageProductDependencies = (
+				5E2000000000000000000011 /* Hummingbird */,
+				5E2000000000000000000012 /* HummingbirdXCT */,
+			);
+			productName = prefabLogicTests;
+			productReference = 5E2000000000000000000009 /* prefabLogicTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -401,6 +461,9 @@
 					};
 					CB9C51932B7EB910007C1AD4 = {
 						CreatedOnToolsVersion = 15.2;
+					};
+					5E200000000000000000000A = {
+						CreatedOnToolsVersion = 26.2;
 					};
 				};
 			};
@@ -426,6 +489,7 @@
 				CB7818362B7D802B0077671A /* prefabTests */,
 				CB7818402B7D802B0077671A /* prefabUITests */,
 				CB9C51932B7EB910007C1AD4 /* prefab */,
+				5E200000000000000000000A /* prefabLogicTests */,
 			);
 		};
 /* End PBXProject section */
@@ -475,6 +539,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5E200000000000000000000D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -482,6 +553,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5E2000000000000000000003 /* PrefabHTTPCore.swift in Sources */,
 				A2EF401D2D71362000CFB0C5 /* HAPUUIDs.swift in Sources */,
 				CB78182D2B7D802B0077671A /* ContentView.swift in Sources */,
 				CB9C518A2B7D8493007C1AD4 /* Data.swift in Sources */,
@@ -530,6 +602,18 @@
 				CBBC0F642B87D732005217EA /* Client+Accessories.swift in Sources */,
 				CBBC0F5C2B87A9FA005217EA /* Client+Homes.swift in Sources */,
 				CBBC0F5A2B87A9F6005217EA /* Prefab+Homes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5E200000000000000000000B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5E2000000000000000000004 /* PrefabHTTPCore.swift in Sources */,
+				5E2000000000000000000005 /* PrefabConfig.swift in Sources */,
+				5E2000000000000000000006 /* Data.swift in Sources */,
+				5E2000000000000000000007 /* HAPUUIDs.swift in Sources */,
+				5E2000000000000000000016 /* DetailTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -863,6 +947,48 @@
 			};
 			name = Release;
 		};
+		5E200000000000000000000F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ericsmith66.prefabLogicTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "";
+			};
+			name = Debug;
+		};
+		5E2000000000000000000010 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ericsmith66.prefabLogicTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -907,6 +1033,15 @@
 			buildConfigurations = (
 				CB9C51992B7EB910007C1AD4 /* Debug */,
 				CB9C519A2B7EB910007C1AD4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5E200000000000000000000E /* Build configuration list for PBXNativeTarget "prefabLogicTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5E200000000000000000000F /* Debug */,
+				5E2000000000000000000010 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -960,6 +1095,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CB9C51AE2B80ACE5007C1AD4 /* XCRemoteSwiftPackageReference "swift-argument-parser" */;
 			productName = ArgumentParser;
+		};
+		5E2000000000000000000011 /* Hummingbird */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB7818592B7D812E0077671A /* XCRemoteSwiftPackageReference "hummingbird" */;
+			productName = Hummingbird;
+		};
+		5E2000000000000000000012 /* HummingbirdXCT */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB7818592B7D812E0077671A /* XCRemoteSwiftPackageReference "hummingbird" */;
+			productName = HummingbirdXCT;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

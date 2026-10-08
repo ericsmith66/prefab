@@ -311,5 +311,4 @@ extension Server {
     }
 }
 
-/// Completion-handler result holder (the completion fires once, before group.leave()).
-final class ErrorBox { var error: Error? }
+// `ErrorBox` moved unchanged to prefab/core/PrefabHTTPCore.swift (S″ S2-1).
