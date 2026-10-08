@@ -63,6 +63,7 @@
 		7A0700000000000000000005 /* TriggerEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0700000000000000000004 /* TriggerEncodingTests.swift */; };
 		7A0700000000000000000007 /* TriggerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0700000000000000000006 /* TriggerCore.swift */; };
 		7A0700000000000000000008 /* TriggerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0700000000000000000006 /* TriggerCore.swift */; };
+		7A070000000000000000000A /* TriggerRoutesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0700000000000000000009 /* TriggerRoutesTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -159,6 +160,7 @@
 		7A0700000000000000000002 /* FakeTriggerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeTriggerStore.swift; sourceTree = "<group>"; };
 		7A0700000000000000000004 /* TriggerEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerEncodingTests.swift; sourceTree = "<group>"; };
 		7A0700000000000000000006 /* TriggerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerCore.swift; sourceTree = "<group>"; };
+		7A0700000000000000000009 /* TriggerRoutesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerRoutesTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -352,6 +354,7 @@
 		5E2000000000000000000008 /* prefabLogicTests */ = {
 			isa = PBXGroup;
 			children = (
+				7A0700000000000000000009 /* TriggerRoutesTests.swift */,
 				7A0700000000000000000004 /* TriggerEncodingTests.swift */,
 				7A0700000000000000000001 /* Fakes */,
 				5E2000000000000000000025 /* AuthAndValueTests.swift */,
@@ -660,6 +663,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7A070000000000000000000A /* TriggerRoutesTests.swift in Sources */,
 				7A0700000000000000000008 /* TriggerCore.swift in Sources */,
 				7A0700000000000000000005 /* TriggerEncodingTests.swift in Sources */,
 				7A0700000000000000000003 /* FakeTriggerStore.swift in Sources */,

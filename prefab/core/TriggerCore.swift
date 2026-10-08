@@ -402,3 +402,180 @@ enum TriggerAPI {
         return TriggerJSON.encode(home: home, triggers: snapshots, writeEnabled: writeEnabled)
     }
 }
+
+// MARK: - The write flag (S10; plan § 6, amendment A-3)
+
+/// `PUT /triggers/:home/:uuid/enabled` works only while this file exists: next to PREFAB_CONFIG_PATH, a REGULAR file
+/// (not a symlink, not a directory), owned by the uid Prefab runs as, mode exactly 0600. Its content is ignored. It is
+/// checked on every request, so creating or removing it needs no restart. Any lstat error (ENOENT or another) = absent.
+struct TriggerWriteFlag {
+    struct Attributes: Equatable {
+        enum Kind: Equatable { case regular, symlink, directory, other }
+        var kind: Kind
+        var uid: uid_t
+        var mode: mode_t
+    }
+
+    enum Status: Equatable {
+        case valid
+        /// reason ∈ absent, symlink, not_regular_file, owner, mode
+        case invalid(reason: String)
+    }
+
+    static let fileName = "triggers-write-enabled"
+
+    let path: String
+    let uid: uid_t
+    let read: (String) -> Attributes?
+
+    init(path: String, uid: uid_t = getuid(), read: @escaping (String) -> Attributes? = TriggerWriteFlag.lstatAttributes) {
+        self.path = path; self.uid = uid; self.read = read
+    }
+
+    /// The directory of PREFAB_CONFIG_PATH + "/triggers-write-enabled". In production:
+    /// /Users/ericsmith66/Library/Application Support/Prefab/triggers-write-enabled
+    static func path(configPath: String) -> String {
+        (configPath as NSString).deletingLastPathComponent + "/" + fileName
+    }
+
+    /// lstat (never follows a symlink); nil for any error.
+    static func lstatAttributes(_ path: String) -> Attributes? {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return nil }
+        let kind: Attributes.Kind
+        switch st.st_mode & S_IFMT {
+        case S_IFREG: kind = .regular
+        case S_IFLNK: kind = .symlink
+        case S_IFDIR: kind = .directory
+        default: kind = .other
+        }
+        return Attributes(kind: kind, uid: st.st_uid, mode: st.st_mode & 0o7777)
+    }
+
+    func check() -> Status {
+        guard let a = read(path) else { return .invalid(reason: "absent") }
+        switch a.kind {
+        case .symlink: return .invalid(reason: "symlink")
+        case .directory, .other: return .invalid(reason: "not_regular_file")
+        case .regular: break
+        }
+        guard a.uid == uid else { return .invalid(reason: "owner") }
+        guard a.mode & 0o7777 == 0o600 else { return .invalid(reason: "mode") }
+        return .valid
+    }
+}
+
+// MARK: - PUT /triggers/:home/:uuid/enabled (FR-07-A2; plan § 6 with amendment A-2)
+
+extension TriggerAPI {
+    struct PutResult {
+        let status: HTTPResponseStatus
+        let payload: [String: Any]
+    }
+
+    /// In this order: (1) flag not valid → 403 `{"error":"triggers_write_disabled"}` — no home lookup, no body parse,
+    /// no store call; (2) unknown home → 404 what:home; (3) a body that is not a JSON object with a JSON-boolean
+    /// `enabled` → 400 what:enabled; (4) unknown trigger → 404 what:trigger; (5) already in that state → 200
+    /// changed:false, no HomeKit call; (6) `enable(<b>)` with the guard: no completion → 504 write_timeout; an error →
+    /// 502 homekit_error (code, message); isEnabled read back differs → 502 homekit_error code -2; else 200 changed:true.
+    /// Every PUT writes exactly ONE outcome line
+    ///   `[triggers] <rid> PUT <uuid> enabled=<true|false|?> → <status> <ok|error>[ (<reason>)]`  (reason: flag 403 only)
+    /// and one `[triggers] <rid> <uuid> Attempting enable=<b>` line only right before a HomeKit call.
+    static func putEnabled(home: String, uuid: String, body: Data?, requestId: String, store: TriggerStore,
+                           flag: TriggerWriteFlag, log: (String) -> Void, guardSeconds: TimeInterval) -> PutResult {
+        var requested: Bool?
+        func done(_ status: HTTPResponseStatus, _ payload: [String: Any], reason: String? = nil) -> PutResult {
+            let outcome = status == .ok ? "ok" : (payload["error"] as? String ?? "error")
+            let b = requested.map { $0 ? "true" : "false" } ?? "?"
+            log("[triggers] \(requestId) PUT \(uuid) enabled=\(b) → \(status.code) \(outcome)" + (reason.map { " (\($0))" } ?? ""))
+            return PutResult(status: status, payload: payload)
+        }
+
+        if case .invalid(let reason) = flag.check() {
+            return done(.forbidden, ["error": "triggers_write_disabled"], reason: reason)
+        }
+        let found = store.lookup(home: home, uuid: uuid)
+        if found == .noHome { return done(.notFound, ["error": "not_found", "what": "home"]) }
+        guard let b = enabledValue(body) else { return done(.badRequest, ["error": "bad_request", "what": "enabled"]) }
+        requested = b
+        guard case .found(let id, let current) = found else { return done(.notFound, ["error": "not_found", "what": "trigger"]) }
+        if current == b { return done(.ok, ["changed": false, "enabled": b, "uuid": id.uuidString]) }
+
+        log("[triggers] \(requestId) \(uuid) Attempting enable=\(b)")
+        let outcome = Completion()
+        store.setEnabled(home: home, uuid: id, enabled: b) { outcome.finish($0) }
+        guard let error = outcome.wait(seconds: guardSeconds) else {
+            return done(.gatewayTimeout, ["error": "write_timeout"])                       // outcome unknown: GET shows the state
+        }
+        if let e = error {
+            return done(.badGateway, ["error": "homekit_error", "code": e.code, "message": e.message])
+        }
+        let now = store.isEnabled(home: home, uuid: id)
+        guard now == b else {
+            let shown = now.map { $0 ? "true" : "false" } ?? "unknown"
+            return done(.badGateway, ["error": "homekit_error", "code": -2, "message": "isEnabled is \(shown) after enable(\(b))"])
+        }
+        return done(.ok, ["changed": true, "enabled": b, "uuid": id.uuidString])
+    }
+
+    /// The body must be a JSON object whose `enabled` is a JSON boolean (`"no"`, `1`, `null`, a missing key, bad JSON or
+    /// an empty body → nil).
+    static func enabledValue(_ body: Data?) -> Bool? {
+        guard let body, !body.isEmpty,
+              let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              let n = obj["enabled"] as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+        return n.boolValue
+    }
+
+    /// The setEnabled completion, waited for at most `seconds`. A completion after the guard expired is dropped.
+    private final class Completion {
+        private let lock = NSLock()
+        private let semaphore = DispatchSemaphore(value: 0)
+        private var result: TriggerStoreError??
+        func finish(_ e: TriggerStoreError?) {
+            lock.lock(); let first = result == nil; if first { result = .some(e) }; lock.unlock()
+            if first { semaphore.signal() }
+        }
+        /// nil = no completion in time; .some(nil) = success; .some(error) = HomeKit error.
+        func wait(seconds: TimeInterval) -> TriggerStoreError?? {
+            guard semaphore.wait(timeout: .now() + seconds) == .success else { return nil }
+            lock.lock(); defer { lock.unlock() }
+            return result
+        }
+    }
+}
+
+// MARK: - The route table (AC-07-03: no other trigger mutation exists)
+
+enum TriggerRoutes {
+    /// Exactly these two; no create, delete, rename or edit route.
+    static let paths: [(method: String, path: String)] = [("GET", "triggers/:home"), ("PUT", "triggers/:home/:uuid/enabled")]
+
+    /// Called once, from Server.startServer(), after the existing routes.
+    static func register(router: HBRouterBuilder, store: TriggerStore, flagPath: String, log: @escaping (String) -> Void,
+                         guardSeconds: TimeInterval) {
+        register(router: router, store: store, flag: TriggerWriteFlag(path: flagPath), log: log, guardSeconds: guardSeconds)
+    }
+
+    static func register(router: HBRouterBuilder, store: TriggerStore, flag: TriggerWriteFlag, log: @escaping (String) -> Void,
+                         guardSeconds: TimeInterval) {
+        router.get(paths[0].path) { request -> HBResponse in
+            let home = request.parameters.get("home").flatMap { $0.removingPercentEncoding } ?? ""
+            return json(.ok, try TriggerAPI.getTriggers(home: home, store: store, writeEnabled: flag.check() == .valid))
+        }
+        router.put(paths[1].path) { request -> HBResponse in
+            let home = request.parameters.get("home").flatMap { $0.removingPercentEncoding } ?? ""
+            let uuid = request.parameters.get("uuid") ?? ""
+            let body = request.body.buffer.map { Data($0.readableBytesView) }
+            let r = TriggerAPI.putEnabled(home: home, uuid: uuid, body: body, requestId: request.id, store: store, flag: flag,
+                                          log: log, guardSeconds: guardSeconds)
+            guard r.status == .ok else { throw PrefabJSONError(status: r.status, payload: r.payload) }
+            let data = (try? JSONSerialization.data(withJSONObject: r.payload, options: [.sortedKeys])) ?? Data("{}".utf8)
+            return json(.ok, String(decoding: data, as: UTF8.self))
+        }
+    }
+
+    private static func json(_ status: HTTPResponseStatus, _ body: String) -> HBResponse {
+        HBResponse(status: status, headers: ["content-type": "application/json; charset=utf-8"], body: .byteBuffer(ByteBuffer(string: body)))
+    }
+}
