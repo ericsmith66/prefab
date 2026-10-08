@@ -161,6 +161,7 @@ docs commit. At the window, step 15's CDHash after the copy and step 18's `/vers
 
 | date | S | sha256 Contents/MacOS/Prefab | CDHash | built_at | profile |
 |---|---|---|---|---|---|
+| 2026-10-08 | 70b565d80e720ef9abce9e4f60e1b5f753ea0886 | 10648925780affbd982050e42c4e2d90ccc3ff339384894e8598e94ec6c16e5d | da7311518822df76975673ba74f6acb80d3b8119 | 2026-10-08T22:43:02Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 | 2026-10-02 | b2ca6d35801107019489eb0d4d4d94018eee3af8 | 7fd0c015becce5f4e050b9fd884ad511452d20b2f9083e700c189d0ab84fe3e4 | 876f1e2f3b3c1dc098af276ed61dd0668927fbcb | 2026-10-02T18:07:23Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 | ~~2026-10-02~~ superseded by the QA-remediation S′ (never deployed) | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | e85631b67d167c227103aeded7cb91d5836fd51668665476a6325bc93d90e43c | 536c60739b99eec56c9e7de8b506323613a7914b | 2026-10-02T16:24:27Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 
@@ -170,6 +171,8 @@ docs commit. At the window, step 15's CDHash after the copy and step 18's `/vers
 |---|---|---|---|---|---|
 | 2026-10-02 | b2ca6d35801107019489eb0d4d4d94018eee3af8 | a426c7b72c685a596d4810674bf2779ea86054a8d15d886765311f1546f3ac36 | b4ca303dc42edba4250194f13187cbf41f1641ac | 2026-10-02T18:07:58Z | d29ac58d-0875-4558-af32-4a98310ed221 |
 | ~~2026-10-02~~ superseded by the QA-remediation S′ | f21d5d3c8b7a36109be2333c816fc3cfd52edf9a | 34505fb8e05fd94a8f4dce39513fc1c11ab5ba93d5c5d2b0be68fa68bd910dd2 | 484248ad44b502083e303978615624cc90fe0061 | 2026-10-02T16:24:54Z | d29ac58d-0875-4558-af32-4a98310ed221 |
+
+**S″ (2026-10-08):** record `~/Library/Developer/Xcode/DerivedData/prefab-70b565d80e72-Release.parity.txt` on `.253`; built in Eric's desktop session (Xcode 26.5 17F42) through `scripts/run-in-gui-session.sh`, `checks: all passed`, 0 coverage symbols, 0 debug switch strings; P5 re-checked a neutral-named copy on m3ultra (parity-checks.sh rc 0). No Debug build of S″ (R7-15 P4).
 
 Records: `~/Library/Developer/Xcode/DerivedData/prefab-b2ca6d358011-{Release,Debug}.parity.txt` on `.253` (`S′` = `b2ca6d35801107019489eb0d4d4d94018eee3af8`; Xcode 26.5 17F42; built 2026-10-02 in Eric's desktop session through `scripts/run-in-gui-session.sh` from the build clone; both `checks:  all passed`). `S` `f21d5d3`'s products and records were removed after `S′` passed (its rows above are kept for the record).
 
