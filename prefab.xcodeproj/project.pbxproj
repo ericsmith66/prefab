@@ -59,6 +59,10 @@
 		5E2000000000000000000023 /* PollingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000022 /* PollingCore.swift */; };
 		5E2000000000000000000024 /* PollingCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000022 /* PollingCore.swift */; };
 		5E2000000000000000000026 /* AuthAndValueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2000000000000000000025 /* AuthAndValueTests.swift */; };
+		7A0700000000000000000003 /* FakeTriggerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0700000000000000000002 /* FakeTriggerStore.swift */; };
+		7A0700000000000000000005 /* TriggerEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0700000000000000000004 /* TriggerEncodingTests.swift */; };
+		7A0700000000000000000007 /* TriggerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0700000000000000000006 /* TriggerCore.swift */; };
+		7A0700000000000000000008 /* TriggerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0700000000000000000006 /* TriggerCore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -152,6 +156,9 @@
 		5E2000000000000000000020 /* PollingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollingTests.swift; sourceTree = "<group>"; };
 		5E2000000000000000000022 /* PollingCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollingCore.swift; sourceTree = "<group>"; };
 		5E2000000000000000000025 /* AuthAndValueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthAndValueTests.swift; sourceTree = "<group>"; };
+		7A0700000000000000000002 /* FakeTriggerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeTriggerStore.swift; sourceTree = "<group>"; };
+		7A0700000000000000000004 /* TriggerEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerEncodingTests.swift; sourceTree = "<group>"; };
+		7A0700000000000000000006 /* TriggerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerCore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -335,6 +342,7 @@
 		5E2000000000000000000001 /* core */ = {
 			isa = PBXGroup;
 			children = (
+				7A0700000000000000000006 /* TriggerCore.swift */,
 				5E2000000000000000000022 /* PollingCore.swift */,
 				5E2000000000000000000002 /* PrefabHTTPCore.swift */,
 			);
@@ -344,6 +352,8 @@
 		5E2000000000000000000008 /* prefabLogicTests */ = {
 			isa = PBXGroup;
 			children = (
+				7A0700000000000000000004 /* TriggerEncodingTests.swift */,
+				7A0700000000000000000001 /* Fakes */,
 				5E2000000000000000000025 /* AuthAndValueTests.swift */,
 				5E2000000000000000000020 /* PollingTests.swift */,
 				5E200000000000000000001D /* Fixtures */,
@@ -361,6 +371,14 @@
 				5E200000000000000000001E /* production-config-keys.json */,
 			);
 			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		7A0700000000000000000001 /* Fakes */ = {
+			isa = PBXGroup;
+			children = (
+				7A0700000000000000000002 /* FakeTriggerStore.swift */,
+			);
+			path = Fakes;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -584,6 +602,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7A0700000000000000000007 /* TriggerCore.swift in Sources */,
 				5E2000000000000000000023 /* PollingCore.swift in Sources */,
 				5E2000000000000000000003 /* PrefabHTTPCore.swift in Sources */,
 				A2EF401D2D71362000CFB0C5 /* HAPUUIDs.swift in Sources */,
@@ -641,6 +660,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7A0700000000000000000008 /* TriggerCore.swift in Sources */,
+				7A0700000000000000000005 /* TriggerEncodingTests.swift in Sources */,
+				7A0700000000000000000003 /* FakeTriggerStore.swift in Sources */,
 				5E2000000000000000000026 /* AuthAndValueTests.swift in Sources */,
 				5E2000000000000000000024 /* PollingCore.swift in Sources */,
 				5E2000000000000000000021 /* PollingTests.swift in Sources */,
