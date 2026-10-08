@@ -9,6 +9,7 @@
     }
   ],
   "defaultOptions" : {
+    "codeCoverage" : false,
     "targetForVariableExpansion" : {
       "containerPath" : "container:prefab.xcodeproj",
       "identifier" : "CB7818262B7D802B0077671A",

@@ -17,6 +17,12 @@
 # DerivedData: a fresh $PREFAB_BUILD_ROOT/prefab-<first 12 of S>-<config> per S; next to it <that>.build.log
 # and <that>.parity.txt (the record, also printed).
 # exit: 0 built, every parity check passed | 1 refused | 2 xcodebuild failed | 3 a parity check failed
+# S″ (plan § 15.18 R7-9 item 2, § 15.19 R8-7): the Release must carry no coverage instrumentation. `xcodebuild build`
+# takes the scheme's test-plan coverage setting (S′'s Release had 10,078 ___profc_ symbols), and Xcode 26.2 refuses
+# `-enableCodeCoverage NO` outside testing ("only supported when testing", exit 64), so Prefab.xctestplan's
+# defaultOptions say "codeCoverage" : false (R7-9's fallback). scripts/parity-checks.sh then checks the product's binary:
+# 0 ___profc_ symbols, 0 __llvm_prf_cnts sections, and (Release) 0 PREFAB_FAULT / PREFAB_FORCE_UNAUTHORIZED strings.
+# Its lines go into the record; any failure (coverage-instrumented, nm-failed, debug-switch-strings) → exit 3.
 set -euo pipefail
 PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
 die() { echo "build-release: $2" >&2; exit "$1"; }
@@ -70,6 +76,7 @@ GITSHA=$(/usr/bin/plutil -extract GitSHA raw -o - "$BI" 2>/dev/null || echo MISS
 GITDIRTY=$(/usr/bin/plutil -extract GitDirty raw -o - "$BI" 2>/dev/null || echo MISSING)
 BUILT=$(/usr/bin/plutil -extract BuiltAt raw -o - "$BI" 2>/dev/null || echo MISSING)
 AFTER=$(/usr/bin/git status --porcelain)
+PCRC=0; PCOUT=$(scripts/parity-checks.sh --binary "$APP/Contents/MacOS/Prefab" --config "$CONFIG") || PCRC=$?
 
 FAIL=""
 [ "$GITSHA" = "$S" ] || FAIL="$FAIL GitSHA"
@@ -81,6 +88,11 @@ FAIL=""
 [ "$HOMEKIT" = true ] || FAIL="$FAIL homekit-entitlement"
 case "$VERIFY" in *"valid on disk"*"satisfies its Designated Requirement"*) ;; *) FAIL="$FAIL codesign-verify" ;; esac
 [ -z "$AFTER" ] || FAIL="$FAIL tree-dirtied-by-build"
+case "$PCRC" in
+  0) ;;
+  3) FAIL="$FAIL $(printf '%s\n' "$PCOUT" | /usr/bin/sed -n 's/^checks: *//p')" ;;
+  *) FAIL="$FAIL parity-checks-rc-$PCRC" ;;
+esac
 
 {
   echo "date: $(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -97,6 +109,7 @@ case "$VERIFY" in *"valid on disk"*"satisfies its Designated Requirement"*) ;; *
   echo "embedded profile UUID: $PROFILE"
   echo "entitlement com.apple.developer.homekit: $HOMEKIT"
   echo "codesign --verify --strict: $VERIFY"
+  printf '%s\n' "$PCOUT" | /usr/bin/grep -v '^checks:' || true
   echo "parity row: $(/bin/date +%F) | $S | $SHA256 | $CDHASH | $BUILT | $PROFILE"
   echo "checks: ${FAIL:- all passed}"
 } | /usr/bin/tee "$REC"
