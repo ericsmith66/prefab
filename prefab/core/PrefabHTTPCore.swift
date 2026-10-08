@@ -48,3 +48,60 @@ struct PrefabJSONError: Error, HBHTTPResponseError {
 
 /// Completion-handler result holder (the completion fires once, before group.leave()).
 final class ErrorBox { var error: Error? }
+
+// MARK: - S2-5: full-detail reads are HomeKit's cache by default (plan § 15.18 R7-8)
+
+extension PrefabJSONError {
+    /// 400 `{"error":"bad_request","what":<what>}`.
+    static func badRequest(_ what: String) -> PrefabJSONError { .init(status: .badRequest, payload: ["error": "bad_request", "what": what]) }
+}
+
+/// How a full-detail route reads (`GET /accessories/:home/id/:uuid`, `GET /accessories/:home/:room/:accessory`).
+enum ReadMode: Equatable {
+    /// No `readValue` at all: ids, types, names, metadata and HomeKit's cached values ("the structure-only id route").
+    case cache
+    /// One `readValue` per characteristic, as S′ always did, bounded by the 12 s guard.
+    case live
+    /// `?characteristic=` alone: exactly one `readValue` of that characteristic (the id route's readOne; unchanged).
+    case single(String)
+
+    /// `read` absent or `cache` → cache; `live` → live; any other `read` value, or `read` together with
+    /// `characteristic` → 400 `{"error":"bad_request","what":"read"}`. `characteristic` alone → single.
+    static func parse(read: String?, characteristic: String?) throws -> ReadMode {
+        if let read {
+            guard characteristic == nil, read == "cache" || read == "live" else { throw PrefabJSONError.badRequest("read") }
+            return read == "live" ? .live : .cache
+        }
+        if let characteristic { return .single(characteristic) }
+        return .cache
+    }
+}
+
+enum DetailValues {
+    static let cache = "cache"
+    static let live = "live"
+    /// Every full-detail response says where its values came from: `values:"cache"`, or `values:"live"` with
+    /// `readErrors` (R7-8 item 3). nil → cache.
+    static func label(_ a: inout Accessory, liveReadErrors: Int?) {
+        if let liveReadErrors { a.values = live; a.readErrors = liveReadErrors } else { a.values = cache; a.readErrors = nil }
+    }
+}
+
+/// The debug-log lines of the read guards (R6-8 item 6 / R7-8 item 5). Cache mode logs nothing.
+enum DetailLog {
+    static func readAllTimeout(_ accessoryId: String) -> String { "[readAll] \(accessoryId) → 504 read_timeout" }
+    static func readOneTimeout(_ characteristicId: String) -> String { "[readOne] \(characteristicId) → 504 read_timeout" }
+    /// One line per live full read, so live reads can be counted.
+    static func readAllCount(_ accessoryId: String, _ reads: Int) -> String { "[readAll] \(accessoryId) readValue x\(reads)" }
+}
+
+/// Counts the failed reads of one live full read; the completions arrive on HomeKit's threads.
+final class ReadTally {
+    private let lock = NSLock()
+    private var count = 0
+    func record(_ error: Error?) {
+        guard error != nil else { return }
+        lock.lock(); count += 1; lock.unlock()
+    }
+    var errors: Int { lock.lock(); defer { lock.unlock() }; return count }
+}

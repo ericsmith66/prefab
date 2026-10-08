@@ -36,12 +36,20 @@ struct Accessory: Encodable, Decodable {
     var manufacturer: String?
     var model: String?
 
+    /// S″ (plan R7-8 item 3): set only on full-detail responses — where the values came from: "cache" (HomeKit's cached
+    /// values, no device reads; the default) or "live" (`?read=live`). Omitted on list, room and summary items.
+    var values: String?
+    /// S″: live mode only — how many of the per-characteristic reads failed (those show HomeKit's cached value).
+    /// A count for people, not a verification signal: only the single-characteristic read verifies a write.
+    var readErrors: Int?
+
     /// RM-1 (FR-A5, AC-01-07/08; QA PD-6): `bridgedBy` is part of the normative accessory shape, so a non-bridged
     /// accessory carries `"bridgedBy": null` instead of omitting the key. Every other optional keeps the synthesized
     /// behaviour (omitted when nil); decoding stays synthesized (`null` and a missing key both decode to nil).
+    /// C2-5 (S″): `values` and `readErrors` are listed here too, or the explicit encoder would silently drop them.
     private enum EncodingKeys: String, CodingKey {
         case home, room, name, uniqueIdentifier, isDefaultRoom, bridgedBy, category, isReachable, supportsIdentify, isBridged,
-             services, firmwareVersion, manufacturer, model
+             services, firmwareVersion, manufacturer, model, values, readErrors
     }
 
     func encode(to encoder: Encoder) throws {
@@ -60,6 +68,8 @@ struct Accessory: Encodable, Decodable {
         try c.encodeIfPresent(firmwareVersion, forKey: .firmwareVersion)
         try c.encodeIfPresent(manufacturer, forKey: .manufacturer)
         try c.encodeIfPresent(model, forKey: .model)
+        try c.encodeIfPresent(values, forKey: .values)
+        try c.encodeIfPresent(readErrors, forKey: .readErrors)
     }
 }
 

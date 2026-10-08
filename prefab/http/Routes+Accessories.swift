@@ -165,24 +165,43 @@ extension Server {
     }
     
     
-    /// GET /accessories/:home/:room/:accessory (name route) — full detail; reads bounded by the 12 s guard (O31).
+    /// GET /accessories/:home/:room/:accessory[?read=cache|live] (name route) — full detail. S″ (plan R7-8): HomeKit's
+    /// cache by default (no device reads, `values:"cache"`); `?read=live` reads every characteristic first, bounded by
+    /// the 12 s guard (O31). Its remaining caller is the legacy manual HomekitSync (`POST /sync`).
     func getAccessory(_ request: HBRequest) throws -> String {
+        let mode = try ReadMode.parse(read: request.uri.queryParameters.get("read"), characteristic: nil)
         let home = try findHome(request)
         let room = try getRequiredParam(param: "room", request: request).removingPercentEncoding ?? ""
         let name = try getRequiredParam(param: "accessory", request: request).removingPercentEncoding ?? ""
         guard let list = accessories(in: home, roomNamed: room) else { throw PrefabJSONError.notFound("room") }
         guard let accessory = list.first(where: { $0.name == name }) else { throw PrefabJSONError.notFound("accessory") }
-        try readAll(accessory)
-        return String(data: try JSONEncoder().encode(detailJSON(accessory, in: home)), encoding: .utf8)!
+        return try detailResponse(accessory, in: home, live: mode == .live)
     }
 
-    /// readValue on every characteristic (as today), bounded by the 12 s full-detail guard → 504 read_timeout (O31).
-    func readAll(_ accessory: HMAccessory) throws {
+    /// A full-detail response labelled with where its values came from (R7-8 item 3; C2-5's encoder carries the fields).
+    /// Cache mode makes no readValue call and logs nothing.
+    func detailResponse(_ accessory: HMAccessory, in home: HMHome, live: Bool) throws -> String {
+        let readErrors = live ? try readAll(accessory) : nil
+        var detail = detailJSON(accessory, in: home)
+        DetailValues.label(&detail, liveReadErrors: readErrors)
+        return String(data: try JSONEncoder().encode(detail), encoding: .utf8)!
+    }
+
+    /// Live mode only: readValue on every characteristic (as S′'s every full-detail read), bounded by the 12 s guard →
+    /// 504 read_timeout (O31). Logs `[readAll] <uuid> readValue x<n>` first, and `[readAll] <uuid> → 504 read_timeout`
+    /// when the guard expires. Returns how many reads failed (`readErrors`; those characteristics show the cached value).
+    func readAll(_ accessory: HMAccessory) throws -> Int {
+        let uuid = accessory.uniqueIdentifier.uuidString
+        let characteristics = accessory.services.flatMap { $0.characteristics }
+        HomeBase.shared.logToFile(DetailLog.readAllCount(uuid, characteristics.count))
+        let tally = ReadTally()
         let group = DispatchGroup()
-        for service in accessory.services { for char in service.characteristics { group.enter(); char.readValue { _ in group.leave() } } }
+        for char in characteristics { group.enter(); char.readValue { error in tally.record(error); group.leave() } }
         if group.wait(timeout: .now() + PrefabTimeouts.readAllSeconds) == .timedOut {
+            HomeBase.shared.logToFile(DetailLog.readAllTimeout(uuid))
             throw PrefabJSONError(status: .gatewayTimeout, payload: ["error": "read_timeout"])
         }
+        return tally.errors
     }
 
     /// Exactly one readValue, bounded by the 5 s single-characteristic guard (S2).
@@ -196,6 +215,7 @@ extension Server {
         let group = DispatchGroup(); group.enter()
         char.readValue { error in box.error = error; group.leave() }
         if group.wait(timeout: .now() + PrefabTimeouts.readOneSeconds) == .timedOut {
+            HomeBase.shared.logToFile(DetailLog.readOneTimeout(char.uniqueIdentifier.uuidString))
             throw PrefabJSONError(status: .gatewayTimeout, payload: ["error": "read_timeout"])
         }
         // RM-4 (QA M3): a failed device read is a typed 502, never HomeKit's cached value presented as a live read.
@@ -211,15 +231,18 @@ extension Server {
                 value: char.value.map { "\($0)" }, format: char.metadata?.format))
     }
 
-    /// GET /accessories/:home/id/:uuid[?characteristic=<uuid>] (FR-A4)
+    /// GET /accessories/:home/id/:uuid[?read=cache|live | ?characteristic=<uuid>] (FR-A4; S″ plan R7-8). With no query
+    /// this is the structure-only id route: HomeKit's cached detail, `values:"cache"`, no device I/O — PRD-1-03's sync
+    /// and HomekitRekey call it. `?characteristic=` alone is the one read that verifies (readOne, RM-4).
     func getAccessoryById(_ request: HBRequest) throws -> String {
+        let mode = try ReadMode.parse(read: request.uri.queryParameters.get("read"),
+                                      characteristic: request.uri.queryParameters.get("characteristic")?.removingPercentEncoding)
         let home = try findHome(request)
         let accessory = try findAccessory(byId: try getRequiredParam(param: "uuid", request: request), in: home)
-        if let charId = request.uri.queryParameters.get("characteristic")?.removingPercentEncoding {
+        if case .single(let charId) = mode {
             return String(data: try JSONEncoder().encode(try readOne(accessory, characteristicId: charId)), encoding: .utf8)!
         }
-        try readAll(accessory)
-        return String(data: try JSONEncoder().encode(detailJSON(accessory, in: home)), encoding: .utf8)!
+        return try detailResponse(accessory, in: home, live: mode == .live)
     }
 
     /// PUT /accessories/:home/id/:uuid (FR-A4) — same contract as the name route (Task A5).
